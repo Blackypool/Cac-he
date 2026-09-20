@@ -36,17 +36,11 @@
 enum errors_
 {
     memory_aloca    = 1,
-
     oversize_any    = 2,
-    
     syntax_err      = 3,
-
     give_null_ptr   = 4,
-    
     file_errorr     = 5,
-
     error_in_deep   = 6,
-
     stack_errorr    = 7,
 };
 
