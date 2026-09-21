@@ -1,7 +1,7 @@
-#ifndef OVERLOAD_SIZES_FUNC_H
-#define OVERLOAD_SIZES_FUNC_H
+#ifndef GET_ANY_SIZE_OF_OBJECT_H
+#define GET_ANY_SIZE_OF_OBJECT_H
 
-#include "M_cacher.h"
+#include "Header.h"
 
 // POD = Plain Old Data -- trivially copyable (можно копи через memcpy) + standard layout (одинаковое расположение in mem для всех компиляторов)
 // условие + type of ret || SFINAE = Substitution Failure Is Not An Error -> another перегрузка
@@ -14,4 +14,4 @@ inline size_t check_byte_size(const std::string& val)   { return val.size();    
 inline size_t check_byte_size(std::string_view val)     { return val.size();        }       // не владеет строкой
 
 
-#endif
+#endif // GET_ANY_SIZE_OF_OBJECT_H

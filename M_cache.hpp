@@ -1,34 +1,39 @@
 #ifndef CACHE_HH
 #define CACHE_HH
 
-#include <cstddef>
-#include <vector>
-#include <list>
+#include "Header.h"
 
 template <typename Value, typename Key, typename Extractor>
-class HashTable {
+class HashTable 
+{
     private:
 
         std::vector<std::list<Value>> table_;
         Extractor get_key_;
 
-        size_t hash_function (const Key& key) const;
+        size_t hash_function (const Key& key) const
+        {
+            return XXH3_64bits(key, check_byte_size(key));
+        }
 
     public:
         
         HashTable (size_t size, Extractor get) 
                 : table_(size), get_key_(get) {}
 
-        void add (const Value& value) {
+        void add (const Value& value) 
+        {
             Key key = get_key_(value);
             size_t index = hash_function(key) % table_.size();
-            table_[index].push_back (value);
+            table_[index].push_back (value); // add to head better?
         }
 
-        const Value* get (const Key& key) const {
+        const Value* get (const Key& key) const 
+        {
             size_t index = hash_function (key) % table_.size();
 
-            for (const auto& elem : table_[index]) {
+            for (const auto& elem : table_[index]) 
+            {
                 if (get_key_(elem) == key)
                     return &elem;
             }
@@ -36,12 +41,15 @@ class HashTable {
             return nullptr;
         }
 
-        void remove (const Key& key) {
+        void remove (const Key& key) 
+        {
             size_t index  = hash_function (key) % table_.size();
             auto& list = table_[index];
 
-            for (auto it = list.begin(); it != list.end(); ++it) {
-                if (key == get_key_(*it)) {
+            for (auto it = list.begin(); it != list.end(); ++it) 
+            {
+                if (key == get_key_(*it)) 
+                {
                     list.erase(it);
                     return;
                 }
@@ -50,7 +58,8 @@ class HashTable {
 };
 
 template <typename Value, typename Key, typename Extractor>
-class CacheLevel {
+class CacheLevel 
+{
     private:
 
         size_t size_;
@@ -66,7 +75,8 @@ class CacheLevel {
 };
 
 template <typename Value, typename Key, typename Extractor>
-class Cache  {
+class Cache  
+{
     private:
 
         CacheLevel<Key, Value, Extractor> L1_;
