@@ -6,43 +6,41 @@
 #include <list>
 
 template <typename Value, typename Key, typename Extractor>
-class HashTable 
-{
+class HashTable {
     private:
 
-        size_t size_;
         std::vector<std::list<Value>> table_;
         Extractor get_key_;
 
-        int hash_function (Key key) const;
+        size_t hash_function (const Key& key) const;
 
     public:
         
-        HashTable  (size_t size) : size_(size);
-        ~HashTable ();
+        HashTable (size_t size, Extractor get) 
+                : table_(size), get_key_(get) {}
 
         void add (const Value& value) {
             Key key = get_key_(value);
-            int index = hash_function(key) % size_;
+            size_t index = hash_function(key) % table_.size();
             table_[index].push_back (value);
         }
 
         const Value* get (const Key& key) const {
-            int index = hash_function (key) % size_;
+            size_t index = hash_function (key) % table_.size();
+
             for (const auto& elem : table_[index]) {
-                Key elem_key = get_key_(elem);
                 if (get_key_(elem) == key)
-                    return &elem
+                    return &elem;
             }
 
             return nullptr;
         }
 
         void remove (const Key& key) {
-            int index  = hash_function (key) % size_;
+            size_t index  = hash_function (key) % table_.size();
             auto& list = table_[index];
 
-            for (auto it = list.begin(); it != list.end(); it++) {
+            for (auto it = list.begin(); it != list.end(); ++it) {
                 if (key == get_key_(*it)) {
                     list.erase(it);
                     return;
@@ -55,26 +53,25 @@ template <typename Value, typename Key, typename Extractor>
 class CacheLevel {
     private:
 
-        size_t size_ = 0;
-        HashTable<Key, Value> table;
+        size_t size_;
+        HashTable<Key, Value, Extractor> table_;
     
     public:
-        CacheLevel  (size_t size) : size_(size);
-        ~CacheLevel ();
+        CacheLevel  (size_t size, Extractor key) 
+            : size_(size), table_(size, key) {}
 
         put (Value Value);
         get (Key Key);
-        Remove (Key key);
-        
+        Remove (Key key);    
 };
 
 template <typename Value, typename Key, typename Extractor>
 class Cache  {
     private:
 
-        CacheLevel<Key, Value> L1_;
-        CacheLevel<Key, Value> L2_;
-        CacheLevel<Key, Value> L3_;
+        CacheLevel<Key, Value, Extractor> L1_;
+        CacheLevel<Key, Value, Extractor> L2_;
+        CacheLevel<Key, Value, Extractor> L3_;
 
     public:
         Cache  (size_t size_L1, size_t size_L2, size_t size_L3);
