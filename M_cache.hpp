@@ -4,10 +4,16 @@
 #include "Header.h"
 #include <utility>
 #include <optional>
+#include <list>
 #include <unordered_map>
 
 // =================================================== LRU cachelevel class ================================================
-template <typename Value, typename Key, typename Extractor, typename Hash>
+template <
+    typename Value, 
+    typename Key, 
+    typename Extractor, 
+    typename Hash
+> 
 class LFUCacheLevel
 {   
     private:
@@ -26,7 +32,7 @@ class LFUCacheLevel
         size_t max_size_;
         Extractor get_key_;
 
-        std::unordered_map <Key, UMP> table_p_;
+        std::unordered_map <Key, UMP, Hash> table_p_;
         std::unordered_map <size_t, UMD> table_d_;
 
         Value replace_elem()
@@ -49,7 +55,7 @@ class LFUCacheLevel
         LFUCacheLevel (size_t size, Extractor key, Hash hash_func)  
             : max_size_(size),
               get_key_ (key) ,
-              table_p_ (size),
+              table_p_ (size, hash_func),
               table_d_ (size) 
         {}
 
@@ -86,7 +92,7 @@ class LFUCacheLevel
             return table_p_.find(key) != table_p_.end();
         }
 
-        std::optional extractor(const Key& key)
+        std::optional<Value> extractor(const Key& key)
         {
             auto it_p = table_p_.find(key);
             if (it_p != table_p_.end())
@@ -117,7 +123,7 @@ class LFUCacheLevel
             auto& list_from = table_d_[it_d->freq];
             auto& list_to   = table_d_[++it_d->freq]
 
-            list_to[freq].splice(
+            list_to.splice(
                 list_to.begin(),
                 list_from,
                 it_d
@@ -131,17 +137,17 @@ class LFUCacheLevel
             auto it_p = table_p_.find(key);
             if (it_p == table_p_.end()) return;
 
-            UMP it_d = it_p->value;
+            UMP it_d = it_p->second;
             
             table_p_.erase(it_p);
-            table_d_.erase(it_d);
+            table_d_[it_d->freq].erase(it_d);
             
             cur_size_--;
         }
 };
 
 
-// ===================================================== main cache class ===================================================
+// ====================================================== main cache class ====================================================
 template <
     typename CacheLevel, 
     typename Value, 
@@ -149,7 +155,8 @@ template <
     typename Extractor, 
     typename Hash,
     typename Finder
-> class Cache  
+>
+class Cache  
 {
     private:
 
@@ -178,11 +185,13 @@ template <
     public:
 
         Cache(size_t size_L1, size_t size_L2, size_t size_L3,
-              Extractor get_key, Hash hash_func, ) 
+              Extractor get_key, Hash hash_func, Finder find_data) 
             : get_key_(get_key),
-              L1_ (size_L1, key, hash_func),
-              L2_ (size_L1, key, hash_func),
-              L3_ (size_L1, key, hash_func)
+              find_data_(find_data),
+              L1_ (size_L1, get_key, hash_func),
+              L2_ (size_L2, get_key, hash_func),
+              L3_ (size_L3, get_key, hash_func)
+
         {}
 
         void add(Value value)
@@ -191,7 +200,7 @@ template <
 
             if (L1_.find(key) ||
                 L2_.find(key) ||
-                L3_.find(key)  ) 
+                L3_.find(key)) 
             {
                 return;
             }
