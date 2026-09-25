@@ -6,94 +6,6 @@
 #include <optional>
 #include <unordered_map>
 
-// ===================================================== hash table class ====================================================
-// template <typename Value, typename Key, typename Extractor, typename Hash>
-// class HashTable 
-// {
-//     private:
-
-//         struct HashEntry
-//         {
-//             Value value;
-//             size_t hash;
-//         };
-
-//         std::vector<std::list<HashEntry>> table_;
-//         Extractor get_key_;
-//         Hash hash_func_;
-
-//     public:
-        
-//         using Iterator = typename std::list<Value>::iterator;
-
-//         HashTable (size_t size, Extractor get_key, Hash hash_func) 
-//                 : table_(size), 
-//                   get_key_(get_key),
-//                   hash_func_(hash_func)
-//         {}
-
-//         Iterator add(Value value) 
-//         {
-//             Key key = get_key_(value);
-//             size_t hash = hash_func_(key);
-//             size_t index = hash % table_.size();
-            
-//             table_[index].push_front({std::move(value), hash});
-//             size_++;
-//             return table_[index].begin();
-//         }
-
-//         std::optional<Iterator> find(const Key& key) 
-//         {
-//             size_t hash = hash_func_(key);
-//             size_t index = hash % table_.size();
-//             auto&  list = table_[index].
-
-//             for (auto it = list.begin(); it != list.end(); ++it) 
-//             {
-//                 if (it->hash == hash && get_key_(it->value) == key) 
-//                 {
-//                     return it;  
-//                 }
-//             }
-
-//             return std::nullopt;
-//         }
-
-//         Value* get(const Key& key) 
-//         {
-//             auto opt_it = find(key);
-            
-//             if (opt_it.has_value())
-//                 return &(opt_it.value()->value);  
-
-//             return nullptr;
-//         }
-
-//         void erase_by_it (Iterator it) 
-//         {
-//             Key key = get_key_(*it);
-//             size_t hash = hash_func_(key);
-//             size_t index = hash % table_.size();
-            
-//             table_[index].erase(it);
-//         }
-
-//         void remove (const Key& key) 
-//         {
-//             auto opt_it = find(key);
-//             if (opt_it.has_value())
-//             {
-//                 erase_by_it(opt_it.value());
-//             }
-//         }
-
-//         size_t size () 
-//         {
-//             return size_;
-//         }
-// };
-
 // =================================================== LRU cachelevel class ================================================
 template <typename Value, typename Key, typename Extractor, typename Hash>
 class LFUCacheLevel
@@ -174,6 +86,24 @@ class LFUCacheLevel
             return table_p_.find(key) != table_p_.end();
         }
 
+        std::optional extractor(const Key& key)
+        {
+            auto it_p = table_p_.find(key);
+            if (it_p != table_p_.end())
+            {
+                return std::nullopt;
+            }
+
+            auto it_d = it_p->second;
+            Value extract = std::move(it_d->value);
+
+            table_p_.erase(it_p);
+            table_d_[it_d->freq].erase(it_d);
+            --cur_size_;
+
+            return extract;
+        }
+
         Value* get(const Key& key)
         {
             auto it_p = table_p_.find(key);
@@ -212,12 +142,19 @@ class LFUCacheLevel
 
 
 // ===================================================== main cache class ===================================================
-template <typename CacheLevel, typename Value, typename Key, typename Extractor, typename Hash>
-class Cache  
+template <
+    typename CacheLevel, 
+    typename Value, 
+    typename Key, 
+    typename Extractor, 
+    typename Hash,
+    typename Finder
+> class Cache  
 {
     private:
 
         Extractor get_key_;
+        Finder  find_data_;
 
         CacheLevel<Value, Key, Extractor, Hash> L1_;
         CacheLevel<Value, Key, Extractor, Hash> L2_;
@@ -241,14 +178,14 @@ class Cache
     public:
 
         Cache(size_t size_L1, size_t size_L2, size_t size_L3,
-              Extractor get_key, Hash hash_func) 
+              Extractor get_key, Hash hash_func, ) 
             : get_key_(get_key),
               L1_ (size_L1, key, hash_func),
               L2_ (size_L1, key, hash_func),
               L3_ (size_L1, key, hash_func)
         {}
 
-        void add (Value value)
+        void add(Value value)
         {
             Key key = get_key_(value);
 
@@ -262,31 +199,27 @@ class Cache
             add_circle (value);
         }
 
-        value* get (Key key)
+        Value* get(Key key)
         {
-            Value* value = L1_.get(key);
-            if (value) 
+            if (Value* val = L1_.get(key)) 
             {
-                return value;
+                return val;
             }
-            else
+            if (auto val = L2_.extract(key))
             {
-                value = L2_.get(key);
-                if (value)
-                {
-                    value new_value = std::move(*value);
-                    add_circle (*value);
-                    L2_.remove (key);
-                }
-                else
-                {
-                    value = L3_.get(key);
-                    add_circle (value);
-                    L3_.remove (key);
-                }
+                add_circle(std::move(*val));
+                return L1.get(key);
+            }
+            if (auto val = L3_.extract(key))
+            {
+                add_circle(std::move(*val));
+                return L1_.get(key);
             }
 
-            return value;
+            Value val = find_value_(key);
+            add_circle(std::move(val));
+
+            return L1_.get(key);
         }
 };
 
