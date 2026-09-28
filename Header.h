@@ -17,7 +17,7 @@
 
 //____________________________________________FAST_COMMANDS________________________________________________________________________________//
     // git add .
-    // git commit -m "update style"
+    // git commit -m "2Q + some ideas rewrite for prev caches"
     // git push
 
     // git pull

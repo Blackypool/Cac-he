@@ -1,5 +1,8 @@
 #include "Header.h"
 
+// last_key_for_up_ need обнулять но как незная тип? надо перегрузку для обнуления этой штуки
+// need убрать проверку на it == end() в местах где ее точно не надо делать (в приват функциях)
+
 template <typename Value, typename Key, typename Extractor, typename Hash>
 class ARCCacheLevel
 {
@@ -26,6 +29,8 @@ class ARCCacheLevel
         //}
 
         Extractor get_key_;
+
+    //_________________________________________________________________________________________________________________________________________//
 
         size_t size_;       // = T1 + T2
         size_t size_T1_;    // = sizeof (T1)
@@ -61,6 +66,8 @@ class ARCCacheLevel
         // find() in Ht is ret it in Ht: it->first  = key
         //                               it->second = it_in_list
 
+    //_________________________________________________________________________________________________________________________________________//
+
         std::optional<Value> add_in_TN (Node_ARC_T_& n_value,  \
                         size_t& size_of_list_T, \
                         size_t& size_of_list_B,  \
@@ -69,16 +76,15 @@ class ARCCacheLevel
                         std::unordered_map <Key, std::list<Node_ARC_T_>::iterator, Hash>& T_T_Htable,\
                         std::unordered_map <Key, std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable  )
         {
+            std::optional<Value> value_of_last = std::nullopt;
+
             //////////////CHECK_SIZE////////////////
             if (T_T_list.size() == size_of_list_T)      // move last of TN -> BN
             {
                 std::list<Node_ARC_T_>::iterator it_last = std::prev(T_T_list.end());   // check it of last in list
-                std::optional<Value> value_of_last = std::move(it_last->value);         // move владение of last
+                value_of_last = std::move(it_last->value);                              // move владение of last
 
-                Node_ARC_T_ last = T_T_list.back();     // take key of last
-                remove_out_TN (last.key, size_of_list_B, T_T_list, B_B_list, T_T_Htable, B_B_Htable);  // delete out of list+Ht (TN)
-
-                return value_of_last;
+                remove_out_TN (it_last->key, size_of_list_B, T_T_list, B_B_list, T_T_Htable, B_B_Htable);  // delete out of list+Ht (TN)
             }
             ////////////////////////////////////////
 
@@ -87,23 +93,22 @@ class ARCCacheLevel
             T_T_Htable.emplace(n_value.key, hot_list_.begin());
             ////////////////////////////////////////
 
-            return std::nullopt;
+            return value_of_last;
         }
 
         std::optional<Value> add_in_BN (Node_ARC_B_& n_key, size_t& size_of_list_B, \
                                             std::list<Node_ARC_B_>& B_B_list, \
                                             std::unordered_map <Key, std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable )
         {
+            std::optional<Value> value_of_last = std::nullopt;
+
             //////////////CHECK_SIZE////////////////
             if (B_B_list.size() == size_of_list_B)
             {
                 std::list<Node_ARC_B_>::iterator it_last = std::prev(B_B_list.end());   // check it of last in list
-                std::optional<Value> value_of_last = std::move(it_last->value);         // move владение of last
+                value_of_last = std::move(it_last->value);                              // move владение of last
 
-                Node_ARC_B_ last = B_B_list.back();     // take key of last
-                remove_out_BN (last.key, B_B_list, B_B_Htable);
-
-                return value_of_last;
+                remove_out_BN (it_last->key, B_B_list, B_B_Htable);
             }
             ////////////////////////////////////////
 
@@ -112,7 +117,7 @@ class ARCCacheLevel
             B_B_Htable.emplace(n_key.key, B_B_list.begin());  // add key, value (= it in list)
             ////////////////////////////////////////
 
-            return std::nullopt;
+            return value_of_last;
         }
 
         void remove_out_TN (Key& key, \
@@ -218,7 +223,7 @@ class ARCCacheLevel
             ////////////////////////////////////////////////////////////////////////////
         }
 
-        std::optional<Value> add (Value& value)
+        std::optional<Value> add (const Value value)
         {
             Node_ARC_T_ n_value = {.key = get_key_(value), .value = value};
             std::optional<Value> value_of_last = std::nullopt;  // for ret вытеснутого
@@ -289,13 +294,16 @@ class ARCCacheLevel
             return;
         }
 
+    //_________________________________________________________________________________________________________________________________________//
 
-        ARCCacheLevel(size_t sz_of_summ_of_T, size_t sz_of_T_one, size_t sz_of_B_one, size_t sz_of_B_two) :
+        ARCCacheLevel(Extractor key, size_t sz_of_summ_of_T, size_t sz_of_T_one, size_t sz_of_B_one, size_t sz_of_B_two) :
             size_(sz_of_summ_of_T),
             size_T1_(sz_of_T_one),
 
             size_B1_(sz_of_B_one),
-            size_B2_(sz_of_B_two)
+            size_B2_(sz_of_B_two),
+
+            get_key_(key)
         {}
         ~ARCCacheLevel() = default;
 };
@@ -315,13 +323,13 @@ class LRUCacheLevel
             Value value;
         };
 
-        std::list<Node_LRU_> hot_list_;
+        std::list <Node_LRU_> hot_list_;
         std::unordered_map <Key, std::list<Node_LRU_>::iterator, Hash> h_table_;  // Ht -- vector of lists with {it, hash}
 
     //_________________________________________________________________________________________________________________________________________//
     public:
 
-        std::optional<Value> add (const Value& value)  // retrun value of выкинутого element
+        std::optional<Value> add (const Value value)  // retrun value of выкинутого element
         {            
             //////////////////IT////////////////////
             Key& key = get_key_(value);
@@ -374,7 +382,228 @@ class LRUCacheLevel
             h_table_.erase(it);
         }
 
+    //_________________________________________________________________________________________________________________________________________//
 
-        LRUCacheLevel(size_t size_of_cache, Extractor key) : size_(size_of_cache), get_key_(key) {} 
+        LRUCacheLevel (size_t size_of_cache, Extractor key) : size_(size_of_cache), get_key_(key) {} 
         ~LRUCacheLevel() = default;
+};
+
+
+template <typename Value, typename Key, typename Extractor, typename Hash>
+class TwoQCache
+{
+    private:
+        static Key last_key_for_up_{};
+
+        Extractor get_key_;
+    
+    //_________________________________________________________________________________________________________________________________________//
+    
+        size_t size_A1_;     
+        size_t size_Am_;     
+        size_t size_A1out_;  
+
+
+        // A1 -- FIFO -- new objects
+        struct Node_2Q_A1_
+        {
+            Key key;
+            Value value;
+        };
+        std::list <Node_2Q_A1_> A1_list_;
+        std::unordered_map <Key, std::list<Node_2Q_A1_>::iterator, Hash> A1_Htable_;
+
+
+        // A1_out -- w\ meta-data  // -- keys of вытесненных из A1
+        struct Node_2Q_A1out_
+        {
+            Key key;
+        };
+        std::list <Node_2Q_A1out_> A1out_list_;
+        std::unordered_map <Key, std::list<Node_2Q_A1out_>::iterator, Hash> A1out_Htable_;
+        
+
+        // Am -- LRU -- >= 2 запросов
+        LRUCacheLevel <Value, Key, Extractor, Hash> Am_LRU_;
+
+    //_________________________________________________________________________________________________________________________________________//
+        
+        std::optional<Value> add_to_A1 (Node_2Q_A1_& n_value)
+        {
+            std::optional<Value> value_of_last = std::nullopt;
+
+            //////////////CHECK_SIZE////////////////    
+            if (A1_list_.size() == size_A1_)
+            {
+                std::list<Node_LRU_>::iterator it_last = std::prev(A1_list_.end());  // check it of last in list
+                value_of_last = std::move(it_last->value);                           // move владение of last
+
+                remove_out_A1 (it_last->key);
+            }
+            ////////////////////////////////////////
+    
+
+            //////////////////ADD///////////////////            
+            A1_list_.push_front(n_value);                       // add new value in list
+            A1_Htable_.emplace(n_value.key, A1_list_.begin());  // add new it in Ht
+            ////////////////////////////////////////
+            
+            return value_of_last;
+        }
+
+        void remove_out_A1 (Key& key)
+        {
+            //////////////////IT////////////////////
+            auto it = A1_Htable_.find(key);  // it in Ht
+            if (it == A1_Htable_.end())      // removed before
+                return;
+            ////////////////////////////////////////
+
+
+            ////////////////DEL_in_A1////////////////
+            A1_list_.erase(it->second);             // it->second = value of node in Ht that equal "it" in list
+            A1_Htable_.erase(it);
+            ////////////////////////////////////////
+
+
+            ////////////////ADD_in_out//////////////
+            Node_2Q_A1out_ move_last = {.key = key};
+            add_to_A1_out (move_last);
+            ////////////////////////////////////////
+        }
+
+        void add_to_A1_out (Node_2Q_A1out_& n_key)
+        {
+            //////////////CHECK_SIZE////////////////    
+            if (A1out_list_.size() == size_A1out_)
+            {
+                std::list<Node_LRU_>::iterator it_last = std::prev(A1out_list_.end());  // check it of last in list
+                remove_out_A1_out (it_last->key);
+            }
+            ////////////////////////////////////////
+
+    
+            //////////////////ADD///////////////////            
+            A1out_list_.push_front(n_key);                          // add new value in list
+            A1out_Htable_.emplace(n_key.key, A1out_list_.begin());  // add new it in Ht
+            ////////////////////////////////////////
+        }
+
+        void remove_out_A1_out (iterator& it)
+        {
+            if (it == A1out_Htable_.end())
+                return;
+
+            A1out_list_.erase(it->second);
+            A1out_Htable_.erase(it);
+        }
+
+    //_________________________________________________________________________________________________________________________________________//
+    public:
+
+        std::optional<Value> add (const Value& value)
+        {
+            Key key = get_key_(value);
+
+            ////////////////UPPER///////////////////
+            if (last_key_for_up_ == key)  // => go to Am
+            {
+                // if в L1 выпал из А1 и попал в Aout и попадает в L2 A1 -> при поиске находим в Aout L1 сохраняем флаг, находим в L2 и переносим в Am L1
+                std::optional<Value> value_of_last = Am_LRU_.add(value);  // add in Am
+
+                if (value_of_last == std::nullopt)
+                    last_key_for_up_ = nullptr;
+                else
+                    last_key_for_up_ = get_key_(value_of_last);
+
+                return value_of_last;
+            }
+            ////////////////////////////////////////
+
+
+            /////////////////A1/////////////////////
+            auto it = A1out_Htable_.find(key);
+            if (it == A1out_Htable_.end())      // there is no value in ghost      
+            {
+                Node_2Q_A1_ n_value = {.key = key, .value = value};      
+                return add_to_A1 (n_value);       // => add to A1 
+            }
+            ////////////////////////////////////////
+
+
+            //////////////////Am////////////////////
+            remove_out_A1_out (it);     // delete in ghost
+            return Am_LRU_.add(value);  // add in Am
+            ////////////////////////////////////////
+        }
+
+        const Value* get(const Key& key)
+        {
+            //////////////////Am////////////////////
+            const Value* value = Am_LRU_.get(key);
+            if (value != nullptr)
+                return value;
+            ////////////////////////////////////////
+
+
+            //////////////////A1////////////////////
+            auto it_A1 = A1_Htable_.find(key);
+            if (it_A1 != A1_Htable_.end())
+                return &(it_A1->second->value);     // A1 is FIFO => not need push to head
+            ////////////////////////////////////////
+
+
+            ////////////////A1_out//////////////////
+            auto it_A1out = A1out_Htable_.find(key);
+            if (it_A1out != A1out_Htable_.end())
+            {
+                last_key_for_up_ = key;
+                remove_out_A1_out (it_A1out);
+
+                return nullptr;
+            }
+            ////////////////////////////////////////
+
+            // cache-miss
+            return nullptr;
+        }
+
+        void remove (Key& key)
+        {
+            /////////////////A1/////////////////////
+            auto it_A1 = A1_Htable_.find(key);
+            if (it_A1 != A1_Htable_.end())
+            {
+                A1_list_.erase(it_A1->second);
+                A1_Htable_.erase(it_A1);
+
+                return;
+            }
+            ////////////////////////////////////////
+
+
+            ////////////////A1_out//////////////////
+            auto it_A1out = A1out_Htable_.find(key);
+            if (it_A1out != A1out_Htable_.end())
+                return remove_out_A1_out (it_A1out);
+            ////////////////////////////////////////
+
+
+            //////////////////Am////////////////////
+            Am_LRU_.remove(key);
+            ////////////////////////////////////////
+        }
+
+    //_________________________________________________________________________________________________________________________________________//
+
+        TwoQCache(Extractor key, size_t size_of_A1_cache, size_t size_of_Am_cache, size_t size_of_A1out_cache) :
+            get_key_(key),    
+        
+            size_A1_(size_of_A1_cache),  
+            size_Am_(size_of_Am_cache),    
+            size_A1out_(size_of_A1out_cache),  
+
+            Am_LRU_(size_Am_, get_key_)
+        {}
+        ~TwoQCache() = default;
 };
