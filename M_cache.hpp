@@ -4,60 +4,6 @@
 #include "Header.h"
 
 template <typename Value, typename Key, typename Extractor>
-class HashTable 
-{
-    private:
-
-        std::vector<std::list<Value>> table_;
-        Extractor get_key_;
-
-        size_t hash_function (const Key& key) const
-        {
-            return XXH3_64bits(key, check_byte_size(key));
-        }
-
-    public:
-        
-        HashTable (size_t size, Extractor get) 
-                : table_(size), get_key_(get) {}
-
-        void add (const Value& value) 
-        {
-            Key key = get_key_(value);
-            size_t index = hash_function(key) % table_.size();
-            table_[index].push_back (value); // add to head better?
-        }
-
-        const Value* get (const Key& key) const 
-        {
-            size_t index = hash_function (key) % table_.size();
-
-            for (const auto& elem : table_[index]) 
-            {
-                if (get_key_(elem) == key)
-                    return &elem;
-            }
-
-            return nullptr;
-        }
-
-        void remove (const Key& key) 
-        {
-            size_t index  = hash_function (key) % table_.size();
-            auto& list = table_[index];
-
-            for (auto it = list.begin(); it != list.end(); ++it) 
-            {
-                if (key == get_key_(*it)) 
-                {
-                    list.erase(it);
-                    return;
-                }
-            }
-        }
-};
-
-template <typename Value, typename Key, typename Extractor>
 class CacheLevel 
 {
     private:
@@ -79,9 +25,9 @@ class Cache
 {
     private:
 
-        CacheLevel<Key, Value, Extractor> L1_;
-        CacheLevel<Key, Value, Extractor> L2_;
-        CacheLevel<Key, Value, Extractor> L3_;
+        CacheLevel<Value, Key, Extractor> L1_;
+        CacheLevel<Value, Key, Extractor> L2_;
+        CacheLevel<Value, Key, Extractor> L3_;
 
     public:
         Cache  (size_t size_L1, size_t size_L2, size_t size_L3);

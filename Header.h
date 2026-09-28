@@ -21,6 +21,10 @@
     // git push
 
     // git pull
+
+    // git fetch origin // only download
+    // git switch Name_of_branch
+    // git branch
 //_________________________________________________________________________________________________________________________________________//
 
 
@@ -35,6 +39,8 @@
 #include <cstddef>
 #include <vector>
 #include <list>
+#include <unordered_map>
+#include <optional>
 //_________________________________________________________________________________________________________________________________________//
 
 
@@ -52,6 +58,7 @@ enum errors_
     file_errorr     = 5,
     error_in_deep   = 6,
     stack_errorr    = 7,
+    load_data       = 8,
 };
 
 #ifdef DE_BUG_ON
