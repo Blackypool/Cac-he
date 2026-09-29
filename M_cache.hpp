@@ -6,8 +6,37 @@
 #include <optional>
 #include <list>
 #include <unordered_map>
+#include <concepts>
 
-// =================================================== LRU cachelevel class ================================================
+namespace MyCache {
+
+template <typename Value, typename Meta>
+struct CacheTransfer
+{
+    Value value;
+    Meta meta;
+};
+
+struct EmptyMeta {};
+
+struct LFUTag {};
+struct LFUMeta
+{
+    size_t freq;
+    using compatibility = LFUTag;
+};
+
+template<typename AnyMeta>
+concept IsCompatibleLFU = requires(AnyMeta meta)
+{
+    typename AnyMeta::compatibility;
+    
+    requires std::same_as<AnyMeta::compatibility, LFUTag>;
+
+    {meta.freq} -> std::convertible_to<size_t>;
+};
+
+// =================================================== LFU cachelevel class ================================================
 template <
     typename Value, 
     typename Key, 
@@ -17,16 +46,18 @@ template <
 class LFUCacheLevel
 {   
     private:
-    
+
+        using Transfer = CacheTransfer<Value, LFUMeta>;
+
         struct ListNode
         {
-            size_t freq;
             Value value;
+            LFUMeta meta;
         };
 
         using UMD = std::list<ListNode>;
         using UMP = std::list<ListNode>::iterator;
-        
+
         size_t cur_size_ = 0;
         size_t min_freq_ = 0;
         size_t max_size_;
@@ -35,19 +66,30 @@ class LFUCacheLevel
         std::unordered_map <Key, UMP, Hash> table_p_;
         std::unordered_map <size_t, UMD> table_d_;
 
-        Value replace_elem()
+        template <typename AnyMeta>
+        size_t extract_freq(const AnyMeta& meta)
+        {
+            if constexpr (IsCompatibleLFU<AnyMeta>)
+            {
+                return meta.freq;
+            }
+
+            else return 1;
+        }
+
+        ListNode replace_elem()
         {
             UMD& list = table_d_[min_freq_];
-            //  ==== check =====
             auto it_d = --list.end();
 
             Key key = get_key_(it_d->value);
-            Value go_up = std::move(it_d->value);
+            auto evicted = std::move(*it_d);
 
             table_p_.erase(key);
             table_d_[min_freq_].erase(it_d);
 
-            return go_up;
+            --cur_size_;
+            return evicted;
         }
 
     public:
@@ -59,32 +101,47 @@ class LFUCacheLevel
               table_d_ (size) 
         {}
 
-        std::optional<Value> add(Value value)
+        struct AddResult
+        {
+            std::optional<Transfer> evicted;
+            Value* inserted;
+        };
+
+        AddResult add(Value value)
         {   
-            ListNode new_elem = {1, std::move(value)};
-            auto& list = table_d_[1];
+            Transfer new_elem = {std::move(value), {1}};
+            return add(std::move(new_elem));
+        }
+
+        template <typename AnyMeta>
+        AddResult add(CacheTransfer<Value, AnyMeta> elem)
+        {
+            size_t freq = extract_freq(elem.meta);
+            auto& list = table_d_[freq];
+            std::optional<Transfer> evicted;
 
             if (cur_size_ >= max_size_)
             {
-                Value go_up = replace_elem();
-                list.push_front(new_elem);
-
-                UMP it = list.begin();
-                Key key = get_key_(it->value);
-
-                table_p_.emplace(key, it);
-                return go_up;
+                ListNode old_node = replace_elem();
+                evicted = Transfer {
+                    std::move(old_node.value),
+                    LFUMeta{old_node.meta.freq}
+                };
             }
-            
-            list.push_front(new_elem);
+
+            ListNode insert = {std::move(elem.value), {freq}};
+            list.push_front(std::move(insert));
             UMP it  = list.begin();
             Key key = get_key_(it->value);
 
-            table_p_.emplace(it);
+            table_p_.emplace(key, it);
+            if (freq < min_freq_ || min_freq_ == 0)
+            {
+                min_freq_ = freq;
+            }
             
-            min_freq_ = 1;
             cur_size_++;
-            return std::nullopt;
+            return {std::move(evicted), &(it->value)};
         }
 
         bool find(const Key& key)
@@ -92,36 +149,39 @@ class LFUCacheLevel
             return table_p_.find(key) != table_p_.end();
         }
 
-        std::optional<Value> extractor(const Key& key)
+        std::optional<Transfer> extract(const Key& key)
         {
             auto it_p = table_p_.find(key);
-            if (it_p != table_p_.end())
+            if (it_p == table_p_.end())
             {
                 return std::nullopt;
             }
 
-            auto it_d = it_p->second;
-            Value extract = std::move(it_d->value);
+            UMP it_d = it_p->second;
+            Transfer extract = {
+                std::move(it_d->value),
+                {it_d->meta.freq}
+            };
 
             table_p_.erase(it_p);
-            table_d_[it_d->freq].erase(it_d);
-            --cur_size_;
+            table_d_[it_d->meta.freq].erase(it_d);
 
+            --cur_size_;
             return extract;
         }
 
         Value* get(const Key& key)
         {
             auto it_p = table_p_.find(key);
-            if (!it_p == table_p_.end()) 
+            if (it_p == table_p_.end()) 
             {
                 return nullptr;
             } 
             
             UMP it_d = it_p->second;
             
-            auto& list_from = table_d_[it_d->freq];
-            auto& list_to   = table_d_[++it_d->freq]
+            auto& list_from = table_d_[it_d->meta.freq];
+            auto& list_to   = table_d_[++it_d->meta.freq];
 
             list_to.splice(
                 list_to.begin(),
@@ -140,7 +200,7 @@ class LFUCacheLevel
             UMP it_d = it_p->second;
             
             table_p_.erase(it_p);
-            table_d_[it_d->freq].erase(it_d);
+            table_d_[it_d->meta.freq].erase(it_d);
             
             cur_size_--;
         }
@@ -149,7 +209,9 @@ class LFUCacheLevel
 
 // ====================================================== main cache class ====================================================
 template <
-    typename CacheLevel, 
+    class Level1, 
+    class Level2, 
+    class Level3, 
     typename Value, 
     typename Key, 
     typename Extractor, 
@@ -163,23 +225,37 @@ class Cache
         Extractor get_key_;
         Finder  find_data_;
 
-        CacheLevel<Value, Key, Extractor, Hash> L1_;
-        CacheLevel<Value, Key, Extractor, Hash> L2_;
-        CacheLevel<Value, Key, Extractor, Hash> L3_;
+        Level1 L1_;
+        Level2 L2_;
+        Level3 L3_;
 
-        void add_circle (Value value)
+        template <typename AnyMeta>
+        Value* add_circle(CacheTransfer<Value, AnyMeta> insert)
         {
-            auto go_L2 = L1_.add(std::move(value));
-            if (go_L2.has_value())
-            {
-                auto go_L3 = L2_.add(std::move(go_L2.value()));
+            auto l1_info = L1_.add(std::move(insert));
+            auto go_l2 = std::move(l1_info.evicted);
 
-                if (go_L3.has_value())
+            if (go_l2.has_value())
+            {
+                auto l2_info = L2_.add(std::move(go_l2.value()));
+                auto go_l3 =std::move(l2_info.evicted);
+
+                if (go_l3.has_value())
                 {
-                    L3_.add(std::move(go_L3.value()));
-                    return;
+                    L3_.add(std::move(go_l3.value()));
                 }
-            }      
+            }  
+            
+            return l1_info.inserted;
+        }
+
+        Value* add_circle(Value insert)
+        {
+            return add_circle (
+                CacheTransfer<Value, EmptyMeta> {
+                    std::move(insert), {}
+                }
+            );
         }
 
     public:
@@ -191,7 +267,6 @@ class Cache
               L1_ (size_L1, get_key, hash_func),
               L2_ (size_L2, get_key, hash_func),
               L3_ (size_L3, get_key, hash_func)
-
         {}
 
         void add(Value value)
@@ -216,20 +291,19 @@ class Cache
             }
             if (auto val = L2_.extract(key))
             {
-                add_circle(std::move(*val));
-                return L1.get(key);
+                return add_circle(std::move(*val));
             }
             if (auto val = L3_.extract(key))
-            {
-                add_circle(std::move(*val));
-                return L1_.get(key);
+            { 
+                return add_circle(std::move(*val));
             }
 
-            Value val = find_value_(key);
-            add_circle(std::move(val));
-
-            return L1_.get(key);
+            Value val = find_data_(key);
+            return add_circle(std::move(val));
         }
 };
+
+
+}
 
 #endif // CACHE_HH
