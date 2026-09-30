@@ -1,12 +1,12 @@
 #ifndef CACHE_HH
 #define CACHE_HH
 
-#include "Header.h"
 #include <utility>
 #include <optional>
 #include <list>
 #include <unordered_map>
 #include <concepts>
+#include <limits>
 
 namespace MyCache {
 
@@ -60,7 +60,7 @@ class LFUCacheLevel
 
         size_t cur_size_ = 0;
         size_t min_freq_ = 0;
-        size_t max_size_;
+        size_t capacity_;
         Extractor get_key_;
 
         std::unordered_map <Key, UMP, Hash> table_p_;
@@ -86,16 +86,42 @@ class LFUCacheLevel
             auto evicted = std::move(*it_d);
 
             table_p_.erase(key);
-            table_d_[min_freq_].erase(it_d);
-
+            list.erase(it_d);
             --cur_size_;
+
+            if (list.empty())
+            {
+                update_min_freq();
+            }
+
             return evicted;
+        }
+
+        void update_min_freq()
+        {
+            if (cur_size_== 0)
+            {
+                min_freq_ = 0
+                return;
+            }
+
+            size_t new_freq = std::numeric_limits<size_t>::max();
+
+            for (const auto& [freq, list] : table_d_)
+            {
+                if (!list.empty() && freq < new_freq)
+                {
+                    new_freq = freq;
+                }
+            }
+
+            min_freq_ = new_freq;
         }
 
     public:
 
         LFUCacheLevel (size_t size, Extractor key, Hash hash_func)  
-            : max_size_(size),
+            : capacity_(size),
               get_key_ (key) ,
               table_p_ (size, hash_func),
               table_d_ (size) 
@@ -120,7 +146,7 @@ class LFUCacheLevel
             auto& list = table_d_[freq];
             std::optional<Transfer> evicted;
 
-            if (cur_size_ >= max_size_)
+            if (cur_size_ >= capacity_)
             {
                 ListNode old_node = replace_elem();
                 evicted = Transfer {
@@ -163,10 +189,18 @@ class LFUCacheLevel
                 {it_d->meta.freq}
             };
 
-            table_p_.erase(it_p);
-            table_d_[it_d->meta.freq].erase(it_d);
+            size_t freq = it_d->meta.freq;
+            auto&  list = table_d_[freq];
 
+            table_p_.erase(it_p);
+            list.erase(it_d);
             --cur_size_;
+
+            if (list.empty() && freq == min_freq_)
+            {
+                update_min_freq();
+            }
+
             return extract;
         }
 
@@ -180,7 +214,8 @@ class LFUCacheLevel
             
             UMP it_d = it_p->second;
             
-            auto& list_from = table_d_[it_d->meta.freq];
+            size_t freq = it_d->meta.freq;
+            auto& list_from = table_d_[freq];
             auto& list_to   = table_d_[++it_d->meta.freq];
 
             list_to.splice(
@@ -188,6 +223,11 @@ class LFUCacheLevel
                 list_from,
                 it_d
             );
+
+            if (list_from.empty() && min_freq_ == freq)
+            {
+                update_min_freq();
+            }
 
             return &(it_d->value);
         }
@@ -197,12 +237,19 @@ class LFUCacheLevel
             auto it_p = table_p_.find(key);
             if (it_p == table_p_.end()) return;
 
+            
             UMP it_d = it_p->second;
-            
+            size_t freq = it_d->meta.freq;
+            auto& list = table_d_[freq];
+
             table_p_.erase(it_p);
-            table_d_[it_d->meta.freq].erase(it_d);
+            list.erase(it_d);
+            --cur_size_;
             
-            cur_size_--;
+            if (list.empty() && freq == min_freq_)
+            {
+                update_min_freq();
+            }
         }
 };
 
@@ -280,7 +327,7 @@ class Cache
                 return;
             }
 
-            add_circle (value);
+            add_circle(value);
         }
 
         Value* get(Key key)
