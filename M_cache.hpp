@@ -31,7 +31,7 @@ concept IsCompatibleLFU = requires(AnyMeta meta)
 {
     typename AnyMeta::compatibility;
     
-    requires std::same_as<AnyMeta::compatibility, LFUTag>;
+    requires std::same_as<typename AnyMeta::compatibility, LFUTag>;
 
     {meta.freq} -> std::convertible_to<size_t>;
 };
@@ -101,7 +101,7 @@ class LFUCacheLevel
         {
             if (cur_size_== 0)
             {
-                min_freq_ = 0
+                min_freq_ = 0;
                 return;
             }
 
