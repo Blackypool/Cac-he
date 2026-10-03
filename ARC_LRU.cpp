@@ -1,13 +1,38 @@
 #include "Header.h"
 
-// last_key_for_up_ need обнулять но как незная тип? надо перегрузку для обнуления этой штуки
-// need убрать проверку на it == end() в местах где ее точно не надо делать (в приват функциях)
+//________________________________________________Questions_Tasks__________________________________________________________________________//
+// 
+//_________________________________________________________________________________________________________________________________________//
+
+
+//_________________________________________________________________________________________________________________________________________//
+template <typename Value, typename Meta>
+struct CacheTransfer
+{
+    Value value;
+    Meta meta;
+};
+//_________________________________________________________________________________________________________________________________________//
+
+
+//_________________________________________________________________________________________________________________________________________//
+namespace ARCCache
+{
+    //_________________________________________________________________________________________________________________________________________//
+    struct ARCTag {};
+
+    struct ARCMeta
+    {
+        using compatibility = ARCTag; 
+    };
+    //_________________________________________________________________________________________________________________________________________//
 
 template <typename Value, typename Key, typename Extractor, typename Hash>
 class ARCCacheLevel
 {
     private:
 
+    //_________________________________________________________________________________________________________________________________________//
         static Key last_key_for_up_{};
         //{   
             // For what it need:
@@ -129,8 +154,6 @@ class ARCCacheLevel
         {
             //////////////////IT////////////////////
             auto it = T_T_Htable.find(key);  // it in Ht
-            if (it == T_T_Htable.end())      // removed before
-                return;
             ////////////////////////////////////////
 
             ////////////////DEL_in_T////////////////
@@ -150,8 +173,6 @@ class ARCCacheLevel
         {
             //////////////////IT////////////////////
             auto it = B_B_Htable.find(key);  // it in Ht
-            if (it == B_B_Htable.end())      // removed before
-                return;
             ////////////////////////////////////////
 
             ////////////////DEL_in_B////////////////
@@ -162,14 +183,59 @@ class ARCCacheLevel
 
         std::optional<Value> add_in_T2_for_upper (Node_ARC_T_ n_value)
         {
-            last_key_for_up_ = nullptr;
+            do_zero(&last_key_for_up_);
             return add_in_TN (n_value, (size_ - size_T1_), size_B2_, T2_list_, B2_list_, T2_Htable_, B2_Htable_);
         }
     
     //_________________________________________________________________________________________________________________________________________//
     public:
-        
-        const Value* get (Key& key)
+
+        struct AddResult 
+        {
+            std::optional <CacheTransfer<Value, ARCMeta>> evicted;  // выкинутый <value + meta>
+            Value* inserted;
+        };
+
+        template <typename AnyMeta>
+        AddResult add(CacheTransfer<Value, AnyMeta> elem)
+        {
+            // удаление из мета-списков происходит при get, тк потом сразу вызывается add => not need check meta lists in add()
+            /////////////////////////////////INIT///////////////////////////////////////
+            Value value = elem.value;
+            Key key = get_key_(value);
+            Node_ARC_T_ n_value = {.key = key, .value = value};
+
+            std::optional<Value> value_of_last = std::nullopt;  // for ret вытеснутого
+            AddResult ret_add = {};
+            ret_add.inserted = &value;
+            ////////////////////////////////////////////////////////////////////////////
+
+
+            ///////////////////////////////////ADD//////////////////////////////////////
+            if (last_key_for_up_ == key)  // add element in T2 because / level up / default search and found in any B /
+                value_of_last = add_in_T2_for_upper (n_value);  // static key is null in therre
+            else
+                value_of_last = add_in_TN (n_value, size_T1_, size_B1_, T1_list_, B1_list_, T1_Htable_, B1_Htable_);  // no T2 --> T1
+            ////////////////////////////////////////////////////////////////////////////
+
+
+            /////////////////////////////////RET////////////////////////////////////////
+            if (value_of_last == std::nullopt)
+                ret_add.evicted = std::nullopt;
+            else
+                ret_add.evicted.value = value_of_last;
+
+            return ret_add;
+            ////////////////////////////////////////////////////////////////////////////
+        }
+
+        AddResult add(Value value)
+        {
+            return add<ARCMeta>({std::move(value)}, {});
+        }
+
+
+        const Value* get (const Key& key)
         {
             ///////////////////////////////T_lines//////////////////////////////////////
             auto it_T1_Ht = T1_Htable_.find(key);
@@ -218,42 +284,52 @@ class ARCCacheLevel
 
 
             ////////////////////////////////MISS////////////////////////////////////////
-            last_key_for_up_ = nullptr;
             return nullptr;
             ////////////////////////////////////////////////////////////////////////////
         }
 
-        std::optional<Value> add (const Value value)
+        bool find (const Key& key)
         {
-            Node_ARC_T_ n_value = {.key = get_key_(value), .value = value};
-            std::optional<Value> value_of_last = std::nullopt;  // for ret вытеснутого
+            ///////////////////////////////T_lines//////////////////////////////////////
+            auto it_T1_Ht = T1_Htable_.find(key);
+            if (it_T1_Ht != T1_Htable_.end())  // already in T1
+                return true;
 
-            ///////////////////////////////UPPER////////////////////////////////////////
-            if (last_key_for_up_ != nullptr)  // add element in T2 because / level up / default search and found in any B /
-                return add_in_T2_for_upper (n_value);
+            auto it_T2_Ht = T2_Htable_.find(key);
+            if (it_T2_Ht != T2_Htable_.end())  // already in T2
+                return true;
             ////////////////////////////////////////////////////////////////////////////
 
 
-            /////////////////////////////ADD_BEFORE/////////////////////////////////////
-            const Value* add_before = get (n_value.key);  // can change flag(last_key_for_up_) -> after check flag
-            if (add_before != nullptr)  // already in TN
-                return std::nullopt;
-            ////////////////////////////////////////////////////////////////////////////
-        
-                        
-            ///////////////////////////////UPPER////////////////////////////////////////
-            if (last_key_for_up_ != nullptr)  // get() can change flag => need check flag again if found in B with ret nullptr
-                return add_in_T2_for_upper (n_value);
+            // delete in B + ret false + save static key, beause при add -> T2
+            // size = const, beacuse это искусственное add повторного of element || level up // change size in extract
+            ///////////////////////////////B_lines//////////////////////////////////////
+            auto it_B1_Ht = B1_Htable_.find(key);
+            if (it_B1_Ht != B1_Htable_.end())  // already in B1
+            {
+                last_key_for_up_ = key;
+                
+                remove_out_BN (key, B1_list_, B1_Htable_);  // delete out of B1
+                return false;
+            }
+
+            auto it_B2_Ht = B2_Htable_.find(key);
+            if (it_B2_Ht != B2_Htable_.end())  // already in B2
+            {
+                last_key_for_up_ = key;
+                
+                remove_out_BN (key, B2_list_, B2_Htable_);  // delete out of B2
+                return false;
+            }
             ////////////////////////////////////////////////////////////////////////////
 
 
-            /////////////////////////////////ADD////////////////////////////////////////
-            value_of_last = add_in_TN (n_value, size_T1_, size_B1_, T1_list_, B1_list_, T1_Htable_, B1_Htable_);  // no T2 --> T1
-                return value_of_last;
+            ////////////////////////////////MISS////////////////////////////////////////
+            return false;
             ////////////////////////////////////////////////////////////////////////////
         }
 
-        void remove (Key& key)  // full delete in all possible lines
+        void remove (const Key& key)  // full delete in all possible lines
         {
             ///////////////////////////////FREE_T///////////////////////////////////////
             auto it_T1_Ht = T1_Htable_.find(key);
@@ -294,6 +370,71 @@ class ARCCacheLevel
             return;
         }
 
+        std::optional<CacheTransfer> extract(const Key& key)  // for level up  // работает как get => need change size
+        {   
+            CacheTransfer <Value, ARCMeta> need_ret = {};
+
+            ////////////////////////////////////////////////////////////////////////////
+            auto it_T1_Ht = T1_Htable_.find(key);
+            if (it_T1_Ht != T1_Htable_.end())  // already in T1
+            {
+                need_ret.value = std::move(it_T1_Ht->second->value);
+
+                T1_list_.erase(it_T1_Ht->second);
+                T1_Htable_.erase(it_T1_Ht);
+
+                return need_ret;
+            }
+            ////////////////////////////////////////////////////////////////////////////
+
+
+            ////////////////////////////////////////////////////////////////////////////
+            auto it_T2_Ht = T2_Htable_.find(key);
+            if (it_T2_Ht != T2_Htable_.end())  // already in T2
+            {
+                last_key_for_up_ = key;        // save key for add in T2 upper
+
+                need_ret.value = std::move(it_T2_Ht->second->value);
+
+                T2_list_.erase(it_T2_Ht->second);
+                T2_Htable_.erase(it_T2_Ht);
+
+                return need_ret;
+            }
+            ////////////////////////////////////////////////////////////////////////////
+
+
+            ///////////////////////////////B_lines//////////////////////////////////////
+            auto it_B1_Ht = B1_Htable_.find(key);
+            if (it_B1_Ht != B1_Htable_.end())  // already in B1
+            {
+                size_T1_++;              // need more space to T1
+                last_key_for_up_ = key;  // save key in static for next zapros
+                
+                Node_ARC_T_ last_of_T2 = T2_list_.back();   // take key of last for delete with func T1
+                remove_out_BN (key, B1_list_, B1_Htable_);  // delete out of B1
+                remove_out_TN (last_of_T2.key, size_B2_, T2_list_, B2_list_, T2_Htable_, B2_Htable_);  // T2 be lower -> need delete in T2 -> go to B2
+
+                return std::nullopt;
+            }
+
+            auto it_B2_Ht = B2_Htable_.find(key);
+            if (it_B2_Ht != B2_Htable_.end())  // already in B2
+            {
+                size_T1_--;              // need more space to T2
+                last_key_for_up_ = key;  // save key in static for next zapros
+
+                Node_ARC_T_ last_of_T1 = T1_list_.back();   // take key of last for delete with func T1
+                remove_out_BN (key, B2_list_, B2_Htable_);  // delete out of B2
+                remove_out_TN (last_of_T1.key, size_B1_, T1_list_, B1_list_, T1_Htable_, B1_Htable_);  // T1 be lower -> need delete in T1 -> go to B1
+
+                return std::nullopt;
+            }
+            ////////////////////////////////////////////////////////////////////////////
+
+            return std::nullopt;
+        }
+
     //_________________________________________________________________________________________________________________________________________//
 
         ARCCacheLevel(Extractor key, size_t sz_of_summ_of_T, size_t sz_of_T_one, size_t sz_of_B_one, size_t sz_of_B_two) :
@@ -307,7 +448,20 @@ class ARCCacheLevel
         {}
         ~ARCCacheLevel() = default;
 };
+}
+//_________________________________________________________________________________________________________________________________________//
+    
+//_________________________________________________________________________________________________________________________________________//
+namespace LRUCache
+{
+    //_________________________________________________________________________________________________________________________________________//
+    struct LRUTag {};
 
+    struct LRUMeta
+    {
+        using compatibility = LRUTag; 
+    };
+    //_________________________________________________________________________________________________________________________________________//
 
 template <typename Value, typename Key, typename Extractor, typename Hash>
 class LRUCacheLevel
@@ -329,28 +483,39 @@ class LRUCacheLevel
     //_________________________________________________________________________________________________________________________________________//
     public:
 
-        std::optional<Value> add (const Value value)  // retrun value of выкинутого element
-        {            
-            //////////////////IT////////////////////
-            Key& key = get_key_(value);
+        struct AddResult 
+        {
+            std::optional <CacheTransfer<Value, LRUMeta>> evicted;  // выкинутый <value + meta>
+            Value* inserted;
+        };
 
-            auto it = h_table_.find(key);
-            if (it != h_table_.end())  // already in Ht
-                return std::nullopt;
-            ////////////////////////////////////////
-    
+        template <typename AnyMeta>
+        AddResult add(CacheTransfer<Value, AnyMeta> elem)
+        {     
+            /////////////////INIT///////////////////
+            Value value = elem.value;
+            Key key = get_key_(value);
             Node_LRU_ n_value = {.key = key, .value = value};
+
             std::optional<Value> value_of_last = std::nullopt;  // for copy вытеснутого
+            AddResult ret_add = {};
+            ret_add.inserted = &value;
+            ////////////////////////////////////////
+
     
             //////////////CHECK_SIZE////////////////    
             if (hot_list_.size() == size_)
             {
                 std::list<Node_LRU_>::iterator it_last = std::prev(hot_list_.end());  // check it of last in list
-                value_of_last = std::move(it_last->value);  // move владение of last
+                value_of_last = std::move(it_last->value);                            // move владение of last
                 
                 h_table_.erase(it_last->key);  // delete last in Ht  
                 hot_list_.pop_back();          // delete in lidt
+
+                ret_add.evicted.value = value_of_last;
             }
+            else
+                ret_add.evicted = std::nullopt;
             ////////////////////////////////////////
 
 
@@ -359,7 +524,12 @@ class LRUCacheLevel
             h_table_.emplace(key, hot_list_.begin());  // add new it in Ht
             ////////////////////////////////////////
             
-            return value_of_last;
+            return ret_add;
+        }
+
+        AddResult add(Value value)
+        {   
+            return add<LRUMeta>({std::move(value)}, {});
         }
 
         const Value* get (const Key& key)
@@ -372,6 +542,15 @@ class LRUCacheLevel
             return &((it->second)->value);
         }
 
+        bool find (const Key& key)
+        {
+            auto it = h_table_.find(key);
+            if (it == h_table_.end())  // cache miss
+                return false;
+
+            return true;
+        }
+
         void remove (const Key& key)
         {
             auto it = h_table_.find(key);
@@ -382,15 +561,43 @@ class LRUCacheLevel
             h_table_.erase(it);
         }
 
+        std::optional<CacheTransfer> extract(const Key& key)
+        {
+            auto it = h_table_.find(key);
+            if (it == h_table_.end())  // removed before
+                return std::nullopt;
+
+            CacheTransfer <Value, LRUMeta> need_val = {};
+            need_val.value = std::move(it->second->value);  // move владение of need
+
+            hot_list_.erase(it->second);
+            h_table_.erase(it);
+
+            return need_val;
+        }
+
     //_________________________________________________________________________________________________________________________________________//
 
         LRUCacheLevel (size_t size_of_cache, Extractor key) : size_(size_of_cache), get_key_(key) {} 
         ~LRUCacheLevel() = default;
 };
+}
+//_________________________________________________________________________________________________________________________________________//
+   
+//_________________________________________________________________________________________________________________________________________//
+namespace TwoQCache
+{
+    //_________________________________________________________________________________________________________________________________________//
+    struct TwoQTag {};
 
+    struct TwoQMeta
+    {
+        using compatibility = TwoQTag; 
+    };
+    //_________________________________________________________________________________________________________________________________________//
 
 template <typename Value, typename Key, typename Extractor, typename Hash>
-class TwoQCache
+class TwoQCacheLevel
 {
     private:
         static Key last_key_for_up_{};
@@ -421,10 +628,10 @@ class TwoQCache
         };
         std::list <Node_2Q_A1out_> A1out_list_;
         std::unordered_map <Key, std::list<Node_2Q_A1out_>::iterator, Hash> A1out_Htable_;
-        
+
 
         // Am -- LRU -- >= 2 запросов
-        LRUCacheLevel <Value, Key, Extractor, Hash> Am_LRU_;
+        LRUCache::LRUCacheLevel <Value, Key, Extractor, Hash> Am_LRU_;
 
     //_________________________________________________________________________________________________________________________________________//
         
@@ -455,8 +662,6 @@ class TwoQCache
         {
             //////////////////IT////////////////////
             auto it = A1_Htable_.find(key);  // it in Ht
-            if (it == A1_Htable_.end())      // removed before
-                return;
             ////////////////////////////////////////
 
 
@@ -491,9 +696,6 @@ class TwoQCache
 
         void remove_out_A1_out (iterator& it)
         {
-            if (it == A1out_Htable_.end())
-                return;
-
             A1out_list_.erase(it->second);
             A1out_Htable_.erase(it);
         }
@@ -501,43 +703,59 @@ class TwoQCache
     //_________________________________________________________________________________________________________________________________________//
     public:
 
-        std::optional<Value> add (const Value& value)
+        struct AddResult 
         {
+            std::optional <CacheTransfer<Value, TwoQMeta>> evicted;  // выкинутый <value + meta>
+            Value* inserted;
+        };
+
+        template <typename AnyMeta>
+        AddResult add(CacheTransfer<Value, AnyMeta> elem)
+        {
+            ////////////////INIT////////////////////
+            Value value = elem.value;
             Key key = get_key_(value);
+            ////////////////////////////////////////
+
 
             ////////////////UPPER///////////////////
             if (last_key_for_up_ == key)  // => go to Am
             {
                 // if в L1 выпал из А1 и попал в Aout и попадает в L2 A1 -> при поиске находим в Aout L1 сохраняем флаг, находим в L2 и переносим в Am L1
-                std::optional<Value> value_of_last = Am_LRU_.add(value);  // add in Am
+                AddResult last_ret_add = Am_LRU_.add(value);  // add in Am
 
-                if (value_of_last == std::nullopt)
-                    last_key_for_up_ = nullptr;
+                if (last_ret_add.evicted == std::nullopt)
+                    do_zero(&last_key_for_up_);
                 else
-                    last_key_for_up_ = get_key_(value_of_last);
+                    last_key_for_up_ = get_key_(last_ret_add.evicted.value);
 
-                return value_of_last;
+                return last_ret_add;
             }
             ////////////////////////////////////////
 
 
-            /////////////////A1/////////////////////
-            auto it = A1out_Htable_.find(key);
-            if (it == A1out_Htable_.end())      // there is no value in ghost      
-            {
-                Node_2Q_A1_ n_value = {.key = key, .value = value};      
-                return add_to_A1 (n_value);       // => add to A1 
-            }
-            ////////////////////////////////////////
+            //////////////////A1///////////////////            
+            Node_2Q_A1_ n_value = {.key = key, .value = value};      
+            std::optional<Value> last_val = add_to_A1 (n_value);
 
+            AddResult ret_add = {};
+            ret_add.inserted = &value;
 
-            //////////////////Am////////////////////
-            remove_out_A1_out (it);     // delete in ghost
-            return Am_LRU_.add(value);  // add in Am
+            if (last_val == std::nullopt)
+                ret_add.evicted = std::nullopt;
+            else
+                ret_add.evicted.value = last_val;
+
+            return ret_add;
             ////////////////////////////////////////
         }
 
-        const Value* get(const Key& key)
+        AddResult add(Value value)
+        {   
+            return add<TwoQMeta>({std::move(value)}, {});
+        }
+
+        Value* get(const Key& key)
         {
             //////////////////Am////////////////////
             const Value* value = Am_LRU_.get(key);
@@ -568,7 +786,33 @@ class TwoQCache
             return nullptr;
         }
 
-        void remove (Key& key)
+        bool find (const Key& key)
+        {
+            //////////////////A1////////////////////
+            auto it_A1 = A1_Htable_.find(key);
+            if (it_A1 != A1_Htable_.end())
+                return true
+            ////////////////////////////////////////
+
+
+            ////////////////GHOST///////////////////
+            auto it_A1_out = A1out_Htable_.find(key);
+            if (it_A1_out != A1out_Htable_.end())
+            {
+                last_key_for_up_ = key;
+                remove_out_A1_out (it_A1_out);
+
+                return false;
+            }
+            ////////////////////////////////////////
+
+
+            //////////////////Am////////////////////
+            return Am_LRU_.find(key);
+            ////////////////////////////////////////
+        }
+
+        void remove (const Key& key)
         {
             /////////////////A1/////////////////////
             auto it_A1 = A1_Htable_.find(key);
@@ -594,6 +838,44 @@ class TwoQCache
             ////////////////////////////////////////
         }
 
+        std::optional<CacheTransfer<Value, TwoQMeta>> extract(const Key& key)
+        {
+            CacheTransfer<Value, TwoQMeta> need_ret = {};
+
+            /////////////////A1/////////////////////
+            auto it_A1 = A1_Htable_.find(key);
+            if (it_A1 != A1_Htable_.end())
+            {
+                need_ret.value = std::move(it_A1->second->value);  // move владение of need
+
+                A1_list_.erase(it_A1->second);
+                A1_Htable_.erase(it_A1);
+
+                return need_ret;
+            }
+            ////////////////////////////////////////
+
+
+            ////////////////A1_out//////////////////
+            auto it_A1out = A1out_Htable_.find(key);
+            if (it_A1out != A1out_Htable_.end())
+            {
+                last_key_for_up_ = key;
+
+                need_ret.value = std::move(it_A1out->second->value);  // move владение of need
+                remove_out_A1_out (it_A1out);
+
+                return need_ret;
+            }
+            ////////////////////////////////////////
+
+
+            //////////////////Am////////////////////
+            last_key_for_up_ = key;     // because up from Am need add to Am
+            return Am_LRU_.extract(key);
+            ////////////////////////////////////////
+        }
+
     //_________________________________________________________________________________________________________________________________________//
 
         TwoQCache(Extractor key, size_t size_of_A1_cache, size_t size_of_Am_cache, size_t size_of_A1out_cache) :
@@ -607,3 +889,6 @@ class TwoQCache
         {}
         ~TwoQCache() = default;
 };
+    //_________________________________________________________________________________________________________________________________________//
+}
+//_________________________________________________________________________________________________________________________________________//

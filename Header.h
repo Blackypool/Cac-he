@@ -17,7 +17,7 @@
 
 //____________________________________________FAST_COMMANDS________________________________________________________________________________//
     // git add .
-    // git commit -m "2Q + some ideas rewrite for prev caches"
+    // git commit -m "ARC + 2Q + LRU for standart level up"
     // git push
 
     // git pull
@@ -36,11 +36,13 @@
 #include <memory>
 #include <cstddef>
 #include <sys/stat.h>
-#include <cstddef>
 #include <vector>
+#include <utility>
+#include <optional>
 #include <list>
 #include <unordered_map>
-#include <optional>
+#include <concepts>
+#include <limits>
 //_________________________________________________________________________________________________________________________________________//
 
 
@@ -78,6 +80,7 @@ enum errors_
 //______________________________________________HEADERS_OF_ANOTHER_________________________________________________________________________//
 #include "get_any_size.h"
 #include "M_cache.hpp"
+#include "do_any_zero.h"
 //_________________________________________________________________________________________________________________________________________//
 
 
