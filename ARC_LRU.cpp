@@ -4,6 +4,12 @@
 // 
 //_________________________________________________________________________________________________________________________________________//
 
+int main()
+{
+
+
+    return 0;
+}
 
 //_________________________________________________________________________________________________________________________________________//
 template <typename Value, typename Meta>
@@ -76,16 +82,16 @@ class ARCCacheLevel
 
 
         std::list <Node_ARC_T_> T1_list_;    // first time add
-        std::unordered_map <Key, std::list<Node_ARC_T_>::iterator, Hash> T1_Htable_;
+        std::unordered_map <Key, typename std::list<Node_ARC_T_>::iterator, Hash> T1_Htable_;
 
         std::list <Node_ARC_T_> T2_list_;    // >= 2 times needed
-        std::unordered_map <Key, std::list<Node_ARC_T_>::iterator, Hash> T2_Htable_;
+        std::unordered_map <Key, typename std::list<Node_ARC_T_>::iterator, Hash> T2_Htable_;
 
         std::list <Node_ARC_B_> B1_list_;    // trash of T1 with meta-data
-        std::unordered_map <Key, std::list<Node_ARC_B_>::iterator, Hash> B1_Htable_;
+        std::unordered_map <Key, typename std::list<Node_ARC_B_>::iterator, Hash> B1_Htable_;
 
         std::list <Node_ARC_B_> B2_list_;    // trash of T2 with meta-data
-        std::unordered_map <Key, std::list<Node_ARC_B_>::iterator, Hash> B2_Htable_;
+        std::unordered_map <Key, typename std::list<Node_ARC_B_>::iterator, Hash> B2_Htable_;
 
         // in Ht {key, it} -> it = it in list where node = {key, value}
         // find() in Ht is ret it in Ht: it->first  = key
@@ -98,15 +104,15 @@ class ARCCacheLevel
                         size_t& size_of_list_B,  \
                         std::list<Node_ARC_T_>& T_T_list, \
                         std::list<Node_ARC_B_>& B_B_list, \
-                        std::unordered_map <Key, std::list<Node_ARC_T_>::iterator, Hash>& T_T_Htable,\
-                        std::unordered_map <Key, std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable  )
+                        std::unordered_map <Key, typename std::list<Node_ARC_T_>::iterator, Hash>& T_T_Htable,\
+                        std::unordered_map <Key, typename std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable  )
         {
             std::optional<Value> value_of_last = std::nullopt;
 
             //////////////CHECK_SIZE////////////////
             if (T_T_list.size() == size_of_list_T)      // move last of TN -> BN
             {
-                std::list<Node_ARC_T_>::iterator it_last = std::prev(T_T_list.end());   // check it of last in list
+                typename std::list<Node_ARC_T_>::iterator it_last = std::prev(T_T_list.end());   // check it of last in list
                 value_of_last = std::move(it_last->value);                              // move владение of last
 
                 remove_out_TN (it_last->key, size_of_list_B, T_T_list, B_B_list, T_T_Htable, B_B_Htable);  // delete out of list+Ht (TN)
@@ -115,7 +121,7 @@ class ARCCacheLevel
 
             ////////////////ADD/////////////////////
             T_T_list.push_front(n_value);
-            T_T_Htable.emplace(n_value.key, hot_list_.begin());
+            T_T_Htable.emplace(n_value.key, T_T_list.begin());
             ////////////////////////////////////////
 
             return value_of_last;
@@ -123,14 +129,14 @@ class ARCCacheLevel
 
         std::optional<Value> add_in_BN (Node_ARC_B_& n_key, size_t& size_of_list_B, \
                                             std::list<Node_ARC_B_>& B_B_list, \
-                                            std::unordered_map <Key, std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable )
+                                            std::unordered_map <Key, typename std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable )
         {
             std::optional<Value> value_of_last = std::nullopt;
 
             //////////////CHECK_SIZE////////////////
             if (B_B_list.size() == size_of_list_B)
             {
-                std::list<Node_ARC_B_>::iterator it_last = std::prev(B_B_list.end());   // check it of last in list
+                typename std::list<Node_ARC_B_>::iterator it_last = std::prev(B_B_list.end());   // check it of last in list
                 value_of_last = std::move(it_last->value);                              // move владение of last
 
                 remove_out_BN (it_last->key, B_B_list, B_B_Htable);
@@ -149,8 +155,8 @@ class ARCCacheLevel
                             size_t& size_of_list_B,  \
                             std::list<Node_ARC_T_>& T_T_list, \
                             std::list<Node_ARC_B_>& B_B_list,  \
-                            std::unordered_map <Key, std::list<Node_ARC_T_>::iterator, Hash>& T_T_Htable, \
-                            std::unordered_map <Key, std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable   )
+                            std::unordered_map <Key, typename std::list<Node_ARC_T_>::iterator, Hash>& T_T_Htable, \
+                            std::unordered_map <Key, typename std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable   )
         {
             //////////////////IT////////////////////
             auto it = T_T_Htable.find(key);  // it in Ht
@@ -169,7 +175,7 @@ class ARCCacheLevel
 
         void remove_out_BN (Key& key, \
                             std::list<Node_ARC_B_>& B_B_list,  \
-                            std::unordered_map <Key, std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable )
+                            std::unordered_map <Key, typename std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable )
         {
             //////////////////IT////////////////////
             auto it = B_B_Htable.find(key);  // it in Ht
@@ -370,7 +376,7 @@ class ARCCacheLevel
             return;
         }
 
-        std::optional<CacheTransfer> extract(const Key& key)  // for level up  // работает как get => need change size
+        std::optional<CacheTransfer<Value, ARCMeta>> extract(const Key& key)  // for level up  // работает как get => need change size
         {   
             CacheTransfer <Value, ARCMeta> need_ret = {};
 
@@ -478,7 +484,7 @@ class LRUCacheLevel
         };
 
         std::list <Node_LRU_> hot_list_;
-        std::unordered_map <Key, std::list<Node_LRU_>::iterator, Hash> h_table_;  // Ht -- vector of lists with {it, hash}
+        std::unordered_map <Key, typename std::list<Node_LRU_>::iterator, Hash> h_table_;  // Ht -- vector of lists with {it, hash}
 
     //_________________________________________________________________________________________________________________________________________//
     public:
@@ -506,7 +512,7 @@ class LRUCacheLevel
             //////////////CHECK_SIZE////////////////    
             if (hot_list_.size() == size_)
             {
-                std::list<Node_LRU_>::iterator it_last = std::prev(hot_list_.end());  // check it of last in list
+                typename std::list<Node_LRU_>::iterator it_last = std::prev(hot_list_.end());  // check it of last in list
                 value_of_last = std::move(it_last->value);                            // move владение of last
                 
                 h_table_.erase(it_last->key);  // delete last in Ht  
@@ -561,7 +567,7 @@ class LRUCacheLevel
             h_table_.erase(it);
         }
 
-        std::optional<CacheTransfer> extract(const Key& key)
+        std::optional<CacheTransfer<Value, LRUMeta>> extract(const Key& key)
         {
             auto it = h_table_.find(key);
             if (it == h_table_.end())  // removed before
@@ -618,7 +624,7 @@ class TwoQCacheLevel
             Value value;
         };
         std::list <Node_2Q_A1_> A1_list_;
-        std::unordered_map <Key, std::list<Node_2Q_A1_>::iterator, Hash> A1_Htable_;
+        std::unordered_map <Key, typename std::list<Node_2Q_A1_>::iterator, Hash> A1_Htable_;
 
 
         // A1_out -- w\ meta-data  // -- keys of вытесненных из A1
@@ -627,7 +633,7 @@ class TwoQCacheLevel
             Key key;
         };
         std::list <Node_2Q_A1out_> A1out_list_;
-        std::unordered_map <Key, std::list<Node_2Q_A1out_>::iterator, Hash> A1out_Htable_;
+        std::unordered_map <Key, typename std::list<Node_2Q_A1out_>::iterator, Hash> A1out_Htable_;
 
 
         // Am -- LRU -- >= 2 запросов
@@ -642,7 +648,7 @@ class TwoQCacheLevel
             //////////////CHECK_SIZE////////////////    
             if (A1_list_.size() == size_A1_)
             {
-                std::list<Node_LRU_>::iterator it_last = std::prev(A1_list_.end());  // check it of last in list
+                typename std::list<Node_2Q_A1_>::iterator it_last = std::prev(A1_list_.end());  // check it of last in list
                 value_of_last = std::move(it_last->value);                           // move владение of last
 
                 remove_out_A1 (it_last->key);
@@ -682,7 +688,7 @@ class TwoQCacheLevel
             //////////////CHECK_SIZE////////////////    
             if (A1out_list_.size() == size_A1out_)
             {
-                std::list<Node_LRU_>::iterator it_last = std::prev(A1out_list_.end());  // check it of last in list
+                typename std::list<Node_2Q_A1out_>::iterator it_last = std::prev(A1out_list_.end());  // check it of last in list
                 remove_out_A1_out (it_last->key);
             }
             ////////////////////////////////////////
@@ -694,7 +700,7 @@ class TwoQCacheLevel
             ////////////////////////////////////////
         }
 
-        void remove_out_A1_out (iterator& it)
+        void remove_out_A1_out (typename std::unordered_map<Key, typename std::list<Node_2Q_A1out_>::iterator, Hash>::iterator& it)
         {
             A1out_list_.erase(it->second);
             A1out_Htable_.erase(it);
@@ -791,7 +797,7 @@ class TwoQCacheLevel
             //////////////////A1////////////////////
             auto it_A1 = A1_Htable_.find(key);
             if (it_A1 != A1_Htable_.end())
-                return true
+                return true;
             ////////////////////////////////////////
 
 
@@ -878,7 +884,7 @@ class TwoQCacheLevel
 
     //_________________________________________________________________________________________________________________________________________//
 
-        TwoQCache(Extractor key, size_t size_of_A1_cache, size_t size_of_Am_cache, size_t size_of_A1out_cache) :
+        TwoQCacheLevel(Extractor key, size_t size_of_A1_cache, size_t size_of_Am_cache, size_t size_of_A1out_cache) :
             get_key_(key),    
         
             size_A1_(size_of_A1_cache),  
@@ -887,7 +893,7 @@ class TwoQCacheLevel
 
             Am_LRU_(size_Am_, get_key_)
         {}
-        ~TwoQCache() = default;
+        ~TwoQCacheLevel() = default;
 };
     //_________________________________________________________________________________________________________________________________________//
 }

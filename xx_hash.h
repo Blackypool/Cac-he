@@ -3146,6 +3146,9 @@ XXH32_finalize(xxh_u32 hash, const xxh_u8* ptr, size_t len, XXH_alignment align)
            case 1:       XXH_PROCESS1;
                          XXH_FALLTHROUGH;  /* fallthrough */
            case 0:       return XXH32_avalanche(hash);
+
+           default:
+                         break;
         }
         XXH_ASSERT(0);
         return hash;   /* reaching this point is deemed impossible */
