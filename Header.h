@@ -17,7 +17,7 @@
 
 //____________________________________________FAST_COMMANDS________________________________________________________________________________//
     // git add .
-    // git commit -m "erroe fixed"
+    // git commit -m "do zero remake"
     // git push
 
     // git pull

@@ -3,3 +3,4 @@ makefile        # not need for prodacshn
 a.out           # also
 gitignore       # я закинул чертежи Омега устройства в само Омега устройство
 a.out.dSYM
+.vscode
