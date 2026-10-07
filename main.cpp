@@ -1,4 +1,5 @@
-#include "M_cache.hpp"
+#include "cache.hpp"
+#include "lfu_policy.hpp"
 
 #include <chrono>
 #include <cstddef>
