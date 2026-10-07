@@ -8,6 +8,10 @@
 #include <concepts>
 #include <limits>
 
+#include <algorithm>
+#include <ostream>
+#include <vector>
+
 namespace MyCache {
 
 template <typename Value, typename Meta>
@@ -46,8 +50,6 @@ template <
 class LFUCacheLevel
 {   
     private:
-
-        using Transfer = CacheTransfer<Value, LFUMeta>;
 
         struct ListNode
         {
@@ -127,6 +129,8 @@ class LFUCacheLevel
               table_d_ (size) 
         {}
 
+        using Transfer = CacheTransfer<Value, LFUMeta>;
+
         struct AddResult
         {
             std::optional<Transfer> evicted;
@@ -170,7 +174,7 @@ class LFUCacheLevel
             return {std::move(evicted), &(it->value)};
         }
 
-        bool find(const Key& key)
+        bool find(const Key& key) const
         {
             return table_p_.find(key) != table_p_.end();
         }
@@ -224,9 +228,14 @@ class LFUCacheLevel
                 it_d
             );
 
-            if (list_from.empty() && min_freq_ == freq)
+            if (list_from.empty())
             {
-                update_min_freq();
+                table_d_.erase(freq);
+
+                if (min_freq_ == freq)
+                {
+                    update_min_freq();
+                }
             }
 
             return &(it_d->value);
@@ -236,7 +245,6 @@ class LFUCacheLevel
         {
             auto it_p = table_p_.find(key);
             if (it_p == table_p_.end()) return;
-
             
             UMP it_d = it_p->second;
             size_t freq = it_d->meta.freq;
@@ -251,6 +259,43 @@ class LFUCacheLevel
                 update_min_freq();
             }
         }
+
+        #ifdef DUMP
+        template <typename Printer>
+        void dump(std::ostream& out, Printer printer) const
+        {
+            std::vector<size_t> frequencies;
+
+            for (const auto& [freq, list] : table_d_)
+            {
+                if (!list.empty())
+                {
+                    frequencies.push_back(freq);
+                }
+            }
+
+            std::sort(frequencies.begin(), frequencies.end());
+
+            out << "size = " << cur_size_
+                << "/" << capacity_
+                << ", min_freq = " << min_freq_ << '\n';
+
+            for (size_t freq : frequencies)
+            {
+                const auto& list = table_d_.at(freq);
+
+                out << "  freq " << freq << ": ";
+
+                for (const auto& node : list)
+                {
+                    printer(out, node.value, node.meta);
+                    out << " ";
+                }
+
+                out << '\n';
+            }
+        }
+        #endif        
 };
 
 
@@ -348,6 +393,25 @@ class Cache
             Value val = find_data_(key);
             return add_circle(std::move(val));
         }
+
+        #ifdef DUMP
+            template <typename Printer>
+            void dump(std::ostream& out, Printer printer) const
+            {
+                out << "\n========== CACHE DUMP ==========\n";
+
+                out << "\n----- L1 -----\n";
+                L1_.dump(out, printer);
+
+                out << "\n----- L2 -----\n";
+                L2_.dump(out, printer);
+
+                out << "\n----- L3 -----\n";
+                L3_.dump(out, printer);
+
+                out << "\n================================\n";
+            }
+        #endif  
 };
 
 
