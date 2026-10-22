@@ -5,121 +5,157 @@
 #include <optional>
 #include <list>
 #include <unordered_map>
-#include <concepts>
-#include <limits>
 
 #include <algorithm>
 #include <ostream>
 #include <vector>
+#include <tuple>
+
+#include "types.h"
 
 namespace MyCache {
 
-template <typename Value, typename Meta>
-struct CacheTransfer
-{
-    Value value;
-    Meta meta;
-};
-
-struct EmptyMeta {};
-
 // ====================================================== main cache class ====================================================
 template <
-    class Level1, 
-    class Level2, 
-    class Level3, 
-    typename Value, 
     typename Key, 
-    typename Extractor, 
-    typename Hash,
-    typename Finder
+    typename Value, 
+    typename Loader,
+    typename ... Policies
 >
 class Cache  
 {
     private:
 
-        Extractor get_key_;
-        Finder  find_data_;
+        Loader load_;
+        std::tuple<Policies ...> levels_;
 
-        Level1 L1_;
-        Level2 L2_;
-        Level3 L3_;
-
-        template <typename AnyMeta>
-        Value* add_circle(CacheTransfer<Value, AnyMeta> insert)
+        template <std::size_t I, typename Transfer>
+        const Value* push_down(Transfer insert)
         {
-            auto l1_info = L1_.add(std::move(insert));
-            auto go_l2 = std::move(l1_info.evicted);
+            auto& current = std::get<I>(levels_);
 
-            if (go_l2.has_value())
+            auto res = current.add(std::move(insert));
+    
+            const Value* inserted = res.inserted;
+
+            if constexpr (I + 1 < sizeof...(Policies))
             {
-                auto l2_info = L2_.add(std::move(go_l2.value()));
-                auto go_l3 =std::move(l2_info.evicted);
-
-                if (go_l3.has_value())
+                if (res.evicted.has_value())
                 {
-                    L3_.add(std::move(go_l3.value()));
+                    push_down<I + 1>(std::move(*res.evicted));
                 }
-            }  
-            
-            return l1_info.inserted;
+            }
+
+            return inserted;
         }
 
-        Value* add_circle(Value insert)
+        const Value* add_new(Key key, Value value)
         {
-            return add_circle (
-                CacheTransfer<Value, EmptyMeta> {
-                    std::move(insert), {}
+            return push_down<0>(
+                CacheTransfer<Key, Value, EmptyMeta> {
+                    std::move(key),
+                    std::move(value), 
+                    {}
                 }
             );
         }
 
+        bool contains(const Key& key) const
+        {
+            return std::apply (
+                [&](const auto& ... levels)
+                {
+                    return (levels.contains(key) || ...);
+                },
+                levels_
+            );
+        }
+
+        template <std::size_t I>
+        const Value* get_from_low_levels(const Key& key)
+        {
+            if constexpr (I < sizeof...(Policies))
+            {
+                auto& level = std::get<I>(levels_);
+
+                if (auto transfer = level.extract(key))
+                {
+                    return push_down<0>(std::move(*transfer));
+                }
+
+                return get_from_low_levels<I + 1>(key);
+            }
+
+            else
+            {
+                Value value = load_(key);
+                return add_new (
+                    std::move(key),
+                    std::move(value)
+                );
+            }
+        }
+        
+        template <std::size_t I>
+        void level_dump(std::ostream& out) const
+        {
+            if constexpr (I < sizeof ... (Policies))
+            {
+                auto& level = std::get<I>(levels_);
+
+                out<< "\n\n========= " << "L"<< I + 1 << " dump" << " =========\n\n";
+                level.dump(out);
+                out<< "\n===========================\n\n";
+
+                level_dump<I + 1>(out);
+            }
+        }
+
     public:
 
-        Cache(size_t size_L1, size_t size_L2, size_t size_L3,
-              Extractor get_key, Hash hash_func, Finder find_data) 
-            : get_key_(get_key),
-              find_data_(find_data),
-              L1_ (size_L1, get_key, hash_func),
-              L2_ (size_L2, get_key, hash_func),
-              L3_ (size_L3, get_key, hash_func)
+        Cache(Loader load, Policies ... policies) 
+            :   load_(load),
+                levels_(std::move(policies) ...)
         {}
 
-        void add(Value value)
+        void add(Key key, Value value)
         {
-            Key key = get_key_(value);
-
-            if (L1_.find(key) ||
-                L2_.find(key) ||
-                L3_.find(key)) 
+            if (contains(key))
             {
                 return;
             }
-
-            add_circle(value);
+            
+            add_new(
+                std::move(key),
+                std::move(value)
+            );
         }
 
-        Value* get(Key key)
+        const Value* get(Key key)
         {
-            if (Value* val = L1_.get(key)) 
+            auto& L1 = std::get<0>(levels_);
+
+            if (const Value* val = L1.get(key)) 
             {
                 return val;
             }
-            if (auto val = L2_.extract(key))
-            {
-                return add_circle(std::move(*val));
-            }
-            if (auto val = L3_.extract(key))
-            { 
-                return add_circle(std::move(*val));
-            }
 
-            Value val = find_data_(key);
-            return add_circle(std::move(val));
+            return get_from_low_levels<1>(key);
+        }
+
+        void dump(std::ostream& out) const
+        {
+            out << "\n========== CACHE ==========\n";
+
+            level_dump<0>(out);
+
+            out << "\n===========================\n";
         }
 };
 
 
-}
+} // close MyCache
+
+#include "factory.h"
 
 #endif // CACHE_HH

@@ -12,6 +12,8 @@
 #include <ostream>
 #include <vector>
 
+#include "types.h"
+
 namespace MyCache {
 
 struct LRUTag {};
@@ -56,43 +58,36 @@ class LRUCacheLevel
         AddResult add(CacheTransfer<Value, AnyMeta> elem)
         {     
             /////////////////INIT///////////////////
-            Value value = elem.value;
-            Key key = get_key_(value);
-            Node_LRU_ n_value = {.key = key, .value = value};
-
-            std::optional<Value> value_of_last = std::nullopt;  // for copy вытеснутого
-            AddResult ret_add = {};
-            ret_add.inserted = &value;
+            Key key = get_key_(elem.value);
+            std::optional<CacheTransfer<Value, LRUMeta>> evicted = std::nullopt;
             ////////////////////////////////////////
 
-    
+
             //////////////CHECK_SIZE////////////////    
-            if (hot_list_.size() == size_)
+            if (hot_list_.size() >= size_)
             {
                 typename std::list<Node_LRU_>::iterator it_last = std::prev(hot_list_.end());  // check it of last in list
-                value_of_last = std::move(it_last->value);                            // move владение of last
+                evicted = CacheTransfer<Value, LRUMeta>{std::move(it_last->value), {}};
                 
                 h_table_.erase(it_last->key);  // delete last in Ht  
                 hot_list_.pop_back();          // delete in lidt
-
-                ret_add.evicted.value = value_of_last;
             }
-            else
-                ret_add.evicted = std::nullopt;
             ////////////////////////////////////////
 
 
             //////////////////ADD///////////////////
-            hot_list_.push_front(n_value);             // add new value in list
-            h_table_.emplace(key, hot_list_.begin());  // add new it in Ht
+            hot_list_.push_front(Node_LRU_{key, std::move(elem.value)});  // add new value in list
+
+            auto inserted_it = hot_list_.begin();
+            h_table_.emplace(key, inserted_it);  // add new it in Ht
             ////////////////////////////////////////
             
-            return ret_add;
+            return {std::move(evicted), &inserted_it->value};
         }
 
         AddResult add(Value value)
         {   
-            return add<LRUMeta>({std::move(value)}, {});
+            return add<LRUMeta>({std::move(value), {}});
         }
 
         const Value* get (const Key& key)
@@ -130,18 +125,20 @@ class LRUCacheLevel
             if (it == h_table_.end())  // removed before
                 return std::nullopt;
 
-            CacheTransfer <Value, LRUMeta> need_val = {};
-            need_val.value = std::move(it->second->value);  // move владение of need
-
+            CacheTransfer result{std::move(it->second->value), LRUMeta{}};
             hot_list_.erase(it->second);
             h_table_.erase(it);
 
-            return need_val;
+            return result;
         }
 
     //_________________________________________________________________________________________________________________________________________//
 
-        LRUCacheLevel (size_t size_of_cache, Extractor key) : size_(size_of_cache), get_key_(key) {} 
+        LRUCacheLevel (size_t size_of_cache, Extractor key, Hash hash_func) : size_(size_of_cache), get_key_(key)
+        {
+            if (size_ < 1)
+                throw std::invalid_argument("need size of cache > 0");
+        } 
         ~LRUCacheLevel() = default;
 };
 

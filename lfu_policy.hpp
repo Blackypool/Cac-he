@@ -12,6 +12,8 @@
 #include <ostream>
 #include <vector>
 
+#include "types.h"
+
 namespace MyCache {
 
 struct LFUTag {};
@@ -19,6 +21,11 @@ struct LFUMeta
 {
     size_t freq;
     using compatibility = LFUTag;
+};
+
+struct OptionsLFU
+{
+    size_t capacity;
 };
 
 template<typename AnyMeta>
@@ -33,9 +40,8 @@ concept IsCompatibleLFU = requires(AnyMeta meta)
 
 // =================================================== LFU cachelevel class ================================================
 template <
-    typename Value, 
     typename Key, 
-    typename Extractor, 
+    typename Value, 
     typename Hash
 > 
 class LFUCacheLevel
@@ -44,6 +50,7 @@ class LFUCacheLevel
 
         struct ListNode
         {
+            Key key;
             Value value;
             LFUMeta meta;
         };
@@ -54,7 +61,6 @@ class LFUCacheLevel
         size_t cur_size_ = 0;
         size_t min_freq_ = 0;
         size_t capacity_;
-        Extractor get_key_;
 
         std::unordered_map <Key, UMP, Hash> table_p_;
         std::unordered_map <size_t, UMD> table_d_;
@@ -75,7 +81,7 @@ class LFUCacheLevel
             UMD& list = table_d_[min_freq_];
             auto it_d = --list.end();
 
-            Key key = get_key_(it_d->value);
+            Key key = it_d->key;
             auto evicted = std::move(*it_d);
 
             table_p_.erase(key);
@@ -113,29 +119,27 @@ class LFUCacheLevel
 
     public:
 
-        LFUCacheLevel (size_t size, Extractor key, Hash hash_func)  
-            : capacity_(size),
-              get_key_ (key) ,
-              table_p_ (size, hash_func),
-              table_d_ (size) 
+        LFUCacheLevel (OptionsLFU options, Hash hash_func)  
+            : capacity_(options.capacity),
+              table_p_ (capacity_, hash_func),
+              table_d_ (capacity_) 
         {}
 
-        using Transfer = CacheTransfer<Value, LFUMeta>;
+        using Transfer = CacheTransfer<Key, Value, LFUMeta>;
 
-        struct AddResult
-        {
-            std::optional<Transfer> evicted;
-            Value* inserted;
-        };
 
-        AddResult add(Value value)
+        AddResult<Transfer, Value> add(Value value, Key key)
         {   
-            Transfer new_elem = {std::move(value), {1}};
+            Transfer new_elem = {
+                std::move(key), 
+                std::move(value), 
+                {1}
+            };
             return add(std::move(new_elem));
         }
 
         template <typename AnyMeta>
-        AddResult add(CacheTransfer<Value, AnyMeta> elem)
+        AddResult<Transfer, Value> add(CacheTransfer<Key, Value, AnyMeta> elem)
         {
             size_t freq = extract_freq(elem.meta);
             auto& list = table_d_[freq];
@@ -145,15 +149,21 @@ class LFUCacheLevel
             {
                 ListNode old_node = replace_elem();
                 evicted = Transfer {
+                    std::move(old_node.key),
                     std::move(old_node.value),
                     LFUMeta{old_node.meta.freq}
                 };
             }
 
-            ListNode insert = {std::move(elem.value), {freq}};
+            ListNode insert = {
+                std::move(elem.key), 
+                std::move(elem.value), 
+                {freq}
+            };
+
             list.push_front(std::move(insert));
             UMP it  = list.begin();
-            Key key = get_key_(it->value);
+            Key key = it->key;
 
             table_p_.emplace(key, it);
             if (freq < min_freq_ || min_freq_ == 0)
@@ -165,9 +175,9 @@ class LFUCacheLevel
             return {std::move(evicted), &(it->value)};
         }
 
-        bool find(const Key& key) const
+        bool contains(const Key& key) const
         {
-            return table_p_.find(key) != table_p_.end();
+            return (table_p_.find(key) != table_p_.end());
         }
 
         std::optional<Transfer> extract(const Key& key)
@@ -180,8 +190,9 @@ class LFUCacheLevel
 
             UMP it_d = it_p->second;
             Transfer extract = {
+                std::move(it_d->key),
                 std::move(it_d->value),
-                {it_d->meta.freq}
+                {it_d->meta.freq + 1}
             };
 
             size_t freq = it_d->meta.freq;
@@ -199,7 +210,7 @@ class LFUCacheLevel
             return extract;
         }
 
-        Value* get(const Key& key)
+        const Value* get(const Key& key)
         {
             auto it_p = table_p_.find(key);
             if (it_p == table_p_.end()) 
@@ -250,8 +261,50 @@ class LFUCacheLevel
                 update_min_freq();
             }
         } 
+
+        void dump(std::ostream& out) const
+        {
+            // Блок статистики
+            out << "  [ LFU Policy State ]\n"
+                << "    Size     : " << cur_size_ << '\n'
+                << "    Min Freq : " << min_freq_ << "\n\n";
+
+            if (cur_size_ == 0)
+            {
+                out << "    (Level is empty)\n";
+                return;
+            }
+
+            // Блок данных в виде вертикальной таблицы
+            out << "  [ Frequency Buckets ]\n"
+                << "  --------------------------------\n";
+
+            for (const auto& [freq, list] : table_d_)
+            {
+                if (list.empty())
+                    continue;
+
+                // Заголовок для текущей частоты
+                out << "   Freq = " << freq << '\n';
+
+                // Выводим каждый ключ с новой строки с нумерацией
+                int index = 1;
+                for (const auto& node : list)
+                {
+                    out << "      " << index++ << ". [" << node.key << "]\n";
+                }
+                
+                // Разделитель между группами частот
+                out << "  --------------------------------\n";
+            }
+        }
+
 };
 
+LevelSpec<LFUCacheLevel, OptionsLFU> LFU(size_t capacity)
+{
+    return level<LFUCacheLevel, OptionsLFU>(OptionsLFU(capacity));
+}
 
 }
 

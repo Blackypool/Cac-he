@@ -7,10 +7,13 @@
 #include <unordered_map>
 #include <concepts>
 #include <limits>
+#include <stdexcept>
 
 #include <algorithm>
 #include <ostream>
 #include <vector>
+
+#include "types.h"
 
 namespace MyCache {
 
@@ -33,7 +36,7 @@ class ARCCacheLevel
     private:
 
     //_________________________________________________________________________________________________________________________________________//
-        static Key last_key_for_up_{};
+        inline static std::optional<Key> last_key_for_up_{};
         //{   
             // For what it need:
             //
@@ -93,9 +96,9 @@ class ARCCacheLevel
 
     //_________________________________________________________________________________________________________________________________________//
 
-        std::optional<Value> add_in_TN (Node_ARC_T_& n_value,  \
-                        size_t& size_of_list_T, \
-                        size_t& size_of_list_B,  \
+        std::pair< std::optional<Value>, Value* > add_in_TN (Node_ARC_T_& n_value,  \
+                        size_t size_of_list_T, \
+                        size_t size_of_list_B,  \
                         std::list<Node_ARC_T_>& T_T_list, \
                         std::list<Node_ARC_B_>& B_B_list, \
                         std::unordered_map <Key, typename std::list<Node_ARC_T_>::iterator, Hash>& T_T_Htable,\
@@ -104,7 +107,7 @@ class ARCCacheLevel
             std::optional<Value> value_of_last = std::nullopt;
 
             //////////////CHECK_SIZE////////////////
-            if (T_T_list.size() == size_of_list_T)      // move last of TN -> BN
+            if (T_T_list.size() >= size_of_list_T)      // move last of TN -> BN
             {
                 typename std::list<Node_ARC_T_>::iterator it_last = std::prev(T_T_list.end());   // check it of last in list
                 value_of_last = std::move(it_last->value);                              // move владение of last
@@ -113,26 +116,24 @@ class ARCCacheLevel
             }
             ////////////////////////////////////////
 
+
             ////////////////ADD/////////////////////
-            T_T_list.push_front(n_value);
-            T_T_Htable.emplace(n_value.key, T_T_list.begin());
+            T_T_list.push_front(std::move(n_value));
+            auto inserted_it = T_T_list.begin();
+            T_T_Htable.emplace(inserted_it->key, inserted_it);
             ////////////////////////////////////////
 
-            return value_of_last;
+            return {std::move(value_of_last), &inserted_it->value};
         }
 
-        std::optional<Value> add_in_BN (Node_ARC_B_& n_key, size_t& size_of_list_B, \
+        void add_in_BN (Node_ARC_B_ n_key, size_t size_of_list_B, \
                                             std::list<Node_ARC_B_>& B_B_list, \
                                             std::unordered_map <Key, typename std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable )
         {
-            std::optional<Value> value_of_last = std::nullopt;
-
             //////////////CHECK_SIZE////////////////
-            if (B_B_list.size() == size_of_list_B)
+            if (B_B_list.size() >= size_of_list_B)
             {
                 typename std::list<Node_ARC_B_>::iterator it_last = std::prev(B_B_list.end());   // check it of last in list
-                value_of_last = std::move(it_last->value);                              // move владение of last
-
                 remove_out_BN (it_last->key, B_B_list, B_B_Htable);
             }
             ////////////////////////////////////////
@@ -141,12 +142,10 @@ class ARCCacheLevel
             B_B_list.push_front(n_key);
             B_B_Htable.emplace(n_key.key, B_B_list.begin());  // add key, value (= it in list)
             ////////////////////////////////////////
-
-            return value_of_last;
         }
 
-        void remove_out_TN (Key& key, \
-                            size_t& size_of_list_B,  \
+        void remove_out_TN (const Key key, \
+                            size_t size_of_list_B,  \
                             std::list<Node_ARC_T_>& T_T_list, \
                             std::list<Node_ARC_B_>& B_B_list,  \
                             std::unordered_map <Key, typename std::list<Node_ARC_T_>::iterator, Hash>& T_T_Htable, \
@@ -167,7 +166,7 @@ class ARCCacheLevel
             ////////////////////////////////////////
         }
 
-        void remove_out_BN (Key& key, \
+        void remove_out_BN (const Key key, \
                             std::list<Node_ARC_B_>& B_B_list,  \
                             std::unordered_map <Key, typename std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable )
         {
@@ -179,12 +178,6 @@ class ARCCacheLevel
             B_B_list.erase(it->second);
             B_B_Htable.erase(it);
             ////////////////////////////////////////
-        }
-
-        std::optional<Value> add_in_T2_for_upper (Node_ARC_T_ n_value)
-        {
-            do_zero(&last_key_for_up_);
-            return add_in_TN (n_value, (size_ - size_T1_), size_B2_, T2_list_, B2_list_, T2_Htable_, B2_Htable_);
         }
     
     //_________________________________________________________________________________________________________________________________________//
@@ -201,37 +194,36 @@ class ARCCacheLevel
         {
             // удаление из мета-списков происходит при get, тк потом сразу вызывается add => not need check meta lists in add()
             /////////////////////////////////INIT///////////////////////////////////////
-            Value value = elem.value;
-            Key key = get_key_(value);
-            Node_ARC_T_ n_value = {.key = key, .value = value};
+            Key key = get_key_(elem.value);
+            Node_ARC_T_ n_value = {key, std::move(elem.value)};
 
-            std::optional<Value> value_of_last = std::nullopt;  // for ret вытеснутого
-            AddResult ret_add = {};
-            ret_add.inserted = &value;
+            std::pair< std::optional<Value>, Value* > value_of_last_it_add{};  // for ret вытеснутого
+            std::optional<CacheTransfer<Value, ARCMeta>> evicted = std::nullopt;
             ////////////////////////////////////////////////////////////////////////////
 
 
             ///////////////////////////////////ADD//////////////////////////////////////
             if (last_key_for_up_ == key)  // add element in T2 because / level up / default search and found in any B /
-                value_of_last = add_in_T2_for_upper (n_value);  // static key is null in therre
+            {
+                last_key_for_up_.reset();
+                value_of_last_it_add = add_in_TN (n_value, (size_ - size_T1_), size_B2_, T2_list_, B2_list_, T2_Htable_, B2_Htable_);
+            }
             else
-                value_of_last = add_in_TN (n_value, size_T1_, size_B1_, T1_list_, B1_list_, T1_Htable_, B1_Htable_);  // no T2 --> T1
+                value_of_last_it_add = add_in_TN (n_value, size_T1_, size_B1_, T1_list_, B1_list_, T1_Htable_, B1_Htable_);  // no T2 --> T1
             ////////////////////////////////////////////////////////////////////////////
 
 
             /////////////////////////////////RET////////////////////////////////////////
-            if (value_of_last == std::nullopt)
-                ret_add.evicted = std::nullopt;
-            else
-                ret_add.evicted.value = value_of_last;
+            if (value_of_last_it_add.first != std::nullopt)
+                evicted.emplace( CacheTransfer<Value, ARCMeta>{std::move(*value_of_last_it_add.first), ARCMeta{}} );
 
-            return ret_add;
+            return {std::move(evicted), value_of_last_it_add.second};
             ////////////////////////////////////////////////////////////////////////////
         }
 
         AddResult add(Value value)
         {
-            return add<ARCMeta>({std::move(value)}, {});
+            return add<ARCMeta>({std::move(value), {}});
         }
 
 
@@ -258,26 +250,32 @@ class ARCCacheLevel
             auto it_B1_Ht = B1_Htable_.find(key);
             if (it_B1_Ht != B1_Htable_.end())  // already in B1
             {
-                size_T1_++;              // need more space to T1
                 last_key_for_up_ = key;  // save key in static for next zapros
-                
-                Node_ARC_T_ last_of_T2 = T2_list_.back();   // take key of last for delete with func T1
                 remove_out_BN (key, B1_list_, B1_Htable_);  // delete out of B1
-                remove_out_TN (last_of_T2.key, size_B2_, T2_list_, B2_list_, T2_Htable_, B2_Htable_);  // T2 be lower -> need delete in T2 -> go to B2
 
+                if (size_T1_ < size_)
+                {
+                    size_T1_++;              // need more space to T1
+
+                    Node_ARC_T_ last_of_T2 = T2_list_.back();   // take key of last for delete with func T1
+                    remove_out_TN (last_of_T2.key, size_B2_, T2_list_, B2_list_, T2_Htable_, B2_Htable_);  // T2 be lower -> need delete in T2 -> go to B2
+                }
                 return nullptr;
             }
 
             auto it_B2_Ht = B2_Htable_.find(key);
             if (it_B2_Ht != B2_Htable_.end())  // already in B2
             {
-                size_T1_--;              // need more space to T2
                 last_key_for_up_ = key;  // save key in static for next zapros
-
-                Node_ARC_T_ last_of_T1 = T1_list_.back();   // take key of last for delete with func T1
                 remove_out_BN (key, B2_list_, B2_Htable_);  // delete out of B2
-                remove_out_TN (last_of_T1.key, size_B1_, T1_list_, B1_list_, T1_Htable_, B1_Htable_);  // T1 be lower -> need delete in T1 -> go to B1
 
+                if (size_T1_ > 0)
+                {
+                    size_T1_--;              // need more space to T2
+                
+                    Node_ARC_T_ last_of_T1 = T1_list_.back();   // take key of last for delete with func T1
+                    remove_out_TN (last_of_T1.key, size_B1_, T1_list_, B1_list_, T1_Htable_, B1_Htable_);  // T1 be lower -> need delete in T1 -> go to B1
+                }
                 return nullptr;
             }
             ////////////////////////////////////////////////////////////////////////////
@@ -335,16 +333,18 @@ class ARCCacheLevel
             auto it_T1_Ht = T1_Htable_.find(key);
             if (it_T1_Ht != T1_Htable_.end())  // already in T1
             {
-                remove_out_TN (key, size_B1_, T1_list_, B1_list_, T1_Htable_, B1_Htable_);  // delete in T1 + move to B1 
-                remove_out_BN (key, B1_list_, B1_Htable_);                                  // delete in B1
+                T1_list_.erase(it_T1_Ht->second);
+                T1_Htable_.erase(it_T1_Ht);
+
                 return;
             }
 
             auto it_T2_Ht = T2_Htable_.find(key);
             if (it_T2_Ht != T2_Htable_.end())  // already in T2
             {
-                remove_out_TN (key, size_B2_, T2_list_, B2_list_, T2_Htable_, B2_Htable_);  // delete in T2 + move to B2
-                remove_out_BN (key, B2_list_, B2_Htable_);                                  // delete in B2
+                T2_list_.erase(it_T2_Ht->second);
+                T2_Htable_.erase(it_T2_Ht);
+
                 return;
             }
             ////////////////////////////////////////////////////////////////////////////
@@ -372,13 +372,11 @@ class ARCCacheLevel
 
         std::optional<CacheTransfer<Value, ARCMeta>> extract(const Key& key)  // for level up  // работает как get => need change size
         {   
-            CacheTransfer <Value, ARCMeta> need_ret = {};
-
             ////////////////////////////////////////////////////////////////////////////
             auto it_T1_Ht = T1_Htable_.find(key);
             if (it_T1_Ht != T1_Htable_.end())  // already in T1
             {
-                need_ret.value = std::move(it_T1_Ht->second->value);
+                CacheTransfer <Value, ARCMeta> need_ret(std::move(it_T1_Ht->second->value), ARCMeta{});
 
                 T1_list_.erase(it_T1_Ht->second);
                 T1_Htable_.erase(it_T1_Ht);
@@ -393,8 +391,7 @@ class ARCCacheLevel
             if (it_T2_Ht != T2_Htable_.end())  // already in T2
             {
                 last_key_for_up_ = key;        // save key for add in T2 upper
-
-                need_ret.value = std::move(it_T2_Ht->second->value);
+                CacheTransfer <Value, ARCMeta> need_ret(std::move(it_T2_Ht->second->value), ARCMeta{});
 
                 T2_list_.erase(it_T2_Ht->second);
                 T2_Htable_.erase(it_T2_Ht);
@@ -408,8 +405,9 @@ class ARCCacheLevel
             auto it_B1_Ht = B1_Htable_.find(key);
             if (it_B1_Ht != B1_Htable_.end())  // already in B1
             {
-                size_T1_++;              // need more space to T1
                 last_key_for_up_ = key;  // save key in static for next zapros
+                if (size_T1_ < size_)
+                    size_T1_++;              // need more space to T1
                 
                 Node_ARC_T_ last_of_T2 = T2_list_.back();   // take key of last for delete with func T1
                 remove_out_BN (key, B1_list_, B1_Htable_);  // delete out of B1
@@ -421,8 +419,9 @@ class ARCCacheLevel
             auto it_B2_Ht = B2_Htable_.find(key);
             if (it_B2_Ht != B2_Htable_.end())  // already in B2
             {
-                size_T1_--;              // need more space to T2
                 last_key_for_up_ = key;  // save key in static for next zapros
+                if (size_T1_ > 0)
+                    size_T1_--;              // need more space to T2
 
                 Node_ARC_T_ last_of_T1 = T1_list_.back();   // take key of last for delete with func T1
                 remove_out_BN (key, B2_list_, B2_Htable_);  // delete out of B2
@@ -437,7 +436,7 @@ class ARCCacheLevel
 
     //_________________________________________________________________________________________________________________________________________//
 
-        ARCCacheLevel(Extractor key, size_t sz_of_summ_of_T, size_t sz_of_T_one, size_t sz_of_B_one, size_t sz_of_B_two) :
+        ARCCacheLevel(Extractor key, size_t sz_of_summ_of_T, size_t sz_of_T_one, size_t sz_of_B_one, size_t sz_of_B_two, Hash hash_func) :
             size_(sz_of_summ_of_T),
             size_T1_(sz_of_T_one),
 
@@ -445,7 +444,22 @@ class ARCCacheLevel
             size_B2_(sz_of_B_two),
 
             get_key_(key)
-        {}
+        {
+            if ( (size_ < 1) || (size_T1_ < 1) || (size_B1_ < 1) || (size_B2_ < 1) || (size_T1_ >= size_))
+                throw std::invalid_argument("need size of cache ARC > 0");
+        }
+        ARCCacheLevel(size_t capacity, Extractor key, Hash hash_func) :
+            size_(capacity),
+            size_T1_(capacity / 2),
+
+            size_B1_(capacity / 2),
+            size_B2_(capacity / 2),
+
+            get_key_(key)
+        {
+            if (size_ < 2)
+                throw std::invalid_argument("need size of cache ARC > 0");
+        }
         ~ARCCacheLevel() = default;
 };
 
