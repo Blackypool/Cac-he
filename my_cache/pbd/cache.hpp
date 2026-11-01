@@ -11,9 +11,7 @@
 #include <vector>
 #include <tuple>
 
-#include "types.h"
-
-namespace MyCache {
+namespace MyCache::pbd {
 
 // ====================================================== main cache class ====================================================
 template <
@@ -24,6 +22,10 @@ template <
 >
 class Cache  
 {
+    public:
+
+        using Entry = CacheEntry<Key, Value>;
+
     private:
 
         Loader load_;
@@ -52,22 +54,13 @@ class Cache
         const Value* add_new(Key key, Value value)
         {
             return push_down<0>(
-                CacheTransfer<Key, Value, EmptyMeta> {
-                    std::move(key),
-                    std::move(value), 
-                    {}
+                CacheTransfer<Entry, EmptyMeta> {
+                    Entry {
+                        std::move(key),
+                        std::move(value)
+                    },
+                    {/* empty meta */}
                 }
-            );
-        }
-
-        bool contains(const Key& key) const
-        {
-            return std::apply (
-                [&](const auto& ... levels)
-                {
-                    return (levels.contains(key) || ...);
-                },
-                levels_
             );
         }
 
@@ -143,6 +136,37 @@ class Cache
             return get_from_low_levels<1>(key);
         }
 
+        bool contains(const Key& key) const
+        {
+            return std::apply(
+                [&](const auto& ... levels)
+                {
+                    return (levels.contains(key) || ...);
+                },
+                levels_
+            );
+        }
+
+        template<std::size_t I>
+        void remove(const Key& key)
+        {
+            auto level = std::get<I>(levels_);
+
+            if (level.contains(key))
+            {
+                level.remove(key);
+                return;
+            }
+            else
+            {
+                if constexpr (I + 1 < sizeof...(Policies))
+                {
+                    remove<I + 1>(key);
+                    return;
+                }
+            }
+        }
+
         void dump(std::ostream& out) const
         {
             out << "\n========== CACHE ==========\n";
@@ -154,8 +178,6 @@ class Cache
 };
 
 
-} // close MyCache
-
-#include "factory.h"
+} // MyCache::pbd
 
 #endif // CACHE_HH

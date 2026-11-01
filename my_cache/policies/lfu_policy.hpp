@@ -12,9 +12,7 @@
 #include <ostream>
 #include <vector>
 
-#include "types.h"
-
-namespace MyCache {
+namespace MyCache::policy {
 
 struct LFUTag {};
 struct LFUMeta
@@ -46,6 +44,11 @@ template <
 > 
 class LFUCacheLevel
 {   
+    public:
+
+        using Entry   = CacheEntry<Key, Value>;
+        using Transfer = CacheTransfer<Entry, LFUMeta>;
+
     private:
 
         struct ListNode
@@ -76,7 +79,7 @@ class LFUCacheLevel
             else return 1;
         }
 
-        ListNode replace_elem()
+        Transfer replace_elem()
         {
             UMD& list = table_d_[min_freq_];
             auto it_d = --list.end();
@@ -93,7 +96,13 @@ class LFUCacheLevel
                 update_min_freq();
             }
 
-            return evicted;
+            return Transfer {
+                Entry {
+                    std::move(evicted.key),
+                    std::move(evicted.value),
+                },
+                evicted.meta
+            };
         }
 
         void update_min_freq()
@@ -125,39 +134,30 @@ class LFUCacheLevel
               table_d_ (capacity_) 
         {}
 
-        using Transfer = CacheTransfer<Key, Value, LFUMeta>;
-
-
-        AddResult<Transfer, Value> add(Value value, Key key)
+        AddResult<Transfer, Value> add(Entry entry)
         {   
             Transfer new_elem = {
-                std::move(key), 
-                std::move(value), 
+                std::move(entry), 
                 {1}
             };
             return add(std::move(new_elem));
         }
 
         template <typename AnyMeta>
-        AddResult<Transfer, Value> add(CacheTransfer<Key, Value, AnyMeta> elem)
+        AddResult<Transfer, Value> add(CacheTransfer<Entry, AnyMeta> tranfer)
         {
-            size_t freq = extract_freq(elem.meta);
+            size_t freq = extract_freq(tranfer.meta);
             auto& list = table_d_[freq];
             std::optional<Transfer> evicted;
 
             if (cur_size_ >= capacity_)
             {
-                ListNode old_node = replace_elem();
-                evicted = Transfer {
-                    std::move(old_node.key),
-                    std::move(old_node.value),
-                    LFUMeta{old_node.meta.freq}
-                };
+                evicted = replace_elem();
             }
 
             ListNode insert = {
-                std::move(elem.key), 
-                std::move(elem.value), 
+                std::move(tranfer.entry.key), 
+                std::move(tranfer.entry.value), 
                 {freq}
             };
 
@@ -189,9 +189,12 @@ class LFUCacheLevel
             }
 
             UMP it_d = it_p->second;
-            Transfer extract = {
-                std::move(it_d->key),
-                std::move(it_d->value),
+
+            Transfer extract {
+                Entry {
+                    std::move(it_d->key),
+                    std::move(it_d->value)
+                },
                 {it_d->meta.freq + 1}
             };
 
@@ -264,7 +267,6 @@ class LFUCacheLevel
 
         void dump(std::ostream& out) const
         {
-            // Блок статистики
             out << "  [ LFU Policy State ]\n"
                 << "    Size     : " << cur_size_ << '\n'
                 << "    Min Freq : " << min_freq_ << "\n\n";
@@ -275,7 +277,6 @@ class LFUCacheLevel
                 return;
             }
 
-            // Блок данных в виде вертикальной таблицы
             out << "  [ Frequency Buckets ]\n"
                 << "  --------------------------------\n";
 
@@ -284,28 +285,26 @@ class LFUCacheLevel
                 if (list.empty())
                     continue;
 
-                // Заголовок для текущей частоты
                 out << "   Freq = " << freq << '\n';
 
-                // Выводим каждый ключ с новой строки с нумерацией
                 int index = 1;
                 for (const auto& node : list)
                 {
                     out << "      " << index++ << ". [" << node.key << "]\n";
                 }
                 
-                // Разделитель между группами частот
                 out << "  --------------------------------\n";
             }
         }
-
 };
+
 
 LevelSpec<LFUCacheLevel, OptionsLFU> LFU(size_t capacity)
 {
     return level<LFUCacheLevel, OptionsLFU>(OptionsLFU(capacity));
 }
 
-}
+} // MyCache::policy
+
 
 #endif // LFU_POLICY_HH

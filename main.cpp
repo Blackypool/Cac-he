@@ -1,5 +1,8 @@
-#include "cache.hpp"
-#include "lfu_policy.hpp"
+// #include "my_cache/pbd.hpp"
+#include "my_cache/runtime.hpp"
+#include "my_cache/policies/lfu_policy.hpp"
+#include "my_cache/policies/lru_policy.hpp"
+
 
 #include <chrono>
 #include <cstddef>
@@ -38,12 +41,11 @@ struct Loader
 };
 
 
-std::string generate_random_string() {
-    // Делаем генератор статическим, чтобы он не пересоздавался при каждом вызове функции
+std::string generate_random_string()
+{
     static thread_local std::random_device rd;
     static thread_local std::mt19937 rng(rd());
     
-    // Задаем распределение для длины строки (от 3 до 10)
     std::uniform_int_distribution<int> length_dist(3, 10);
     
     const std::string chars = 
@@ -51,35 +53,46 @@ std::string generate_random_string() {
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         "0123456789";
         
-    // Задаем распределение для случайного символа
     std::uniform_int_distribution<int> char_dist(0, chars.size() - 1);
-    
-    // Получаем случайную длину
+
     int length = length_dist(rng);
     
     std::string result;
-    result.reserve(length); // Резервируем память для избежания лишних аллокаций
+    result.reserve(length);
     
-    // Генерируем строку
-    for (int i = 0; i < length; ++i) {
+    for (int i = 0; i < length; ++i)
+    {
         result += chars[char_dist(rng)];
     }
     
     return result;
 }
 
-using namespace MyCache;
-
 int main (void)
 {
+    // auto cache = MyCache::pbd::make_cache<Key, Value> (
+    //     Loader{},
+    //     std::hash<Key>{},
+    //     MyCache::policy::LRU(10),
+    //     MyCache::policy::LRU(20),
+    //     MyCache::policy::LRU(30)
+    // );
 
-    auto cache = make_cache<Key, Value> (
-        Loader{},
-        std::hash<Key>{},
-        LFU(10),
-        LFU(20),
-        LFU(30)
-    );
+    // for (int i = 0; i < 100; i++)
+    // {
+    //     cache.add(generate_random_string(), i);
+    // }
+
+    // cache.dump(std::cout);
+
+    typename MyCache::runtime::CacheBuilder<Key, Value>
+    builder(Loader{});
+
+    builder.add_level(MyCache::policy::LFU(10));
+    builder.add_level(MyCache::policy::LRU(20));
+    builder.add_level(MyCache::policy::LFU(30));
+
+    auto cache = builder.build();
 
     for (int i = 0; i < 100; i++)
     {

@@ -17,6 +17,15 @@
 
 namespace MyCache {
 
+struct OptionsARC
+{
+    size_t sz_of_summ_of_T;
+    size_t sz_of_T_one;
+
+    size_t sz_of_B_one;
+    size_t sz_of_B_two;
+};
+
 struct ARCTag {};
 
 struct ARCMeta
@@ -26,11 +35,10 @@ struct ARCMeta
 
 // ======================================================= ARC cachelevel class ==================================================
 template <
-    typename Value, 
     typename Key, 
-    typename Extractor, 
+    typename Value, 
     typename Hash
->
+> 
 class ARCCacheLevel
 {
     private:
@@ -55,9 +63,6 @@ class ARCCacheLevel
             //     When found "E" in L2(T1) key is free -> add in L1(T1) else if (key==key) -> L1(T2) + free key
             //
         //}
-
-        Extractor get_key_;
-
     //_________________________________________________________________________________________________________________________________________//
 
         size_t size_;       // = T1 + T2
@@ -183,18 +188,11 @@ class ARCCacheLevel
     //_________________________________________________________________________________________________________________________________________//
     public:
 
-        struct AddResult 
-        {
-            std::optional <CacheTransfer<Value, ARCMeta>> evicted;  // выкинутый <value + meta>
-            Value* inserted;
-        };
-
         template <typename AnyMeta>
-        AddResult add(CacheTransfer<Value, AnyMeta> elem)
+        AddResult add(CacheTransfer<Value, AnyMeta> elem, Key key)
         {
             // удаление из мета-списков происходит при get, тк потом сразу вызывается add => not need check meta lists in add()
             /////////////////////////////////INIT///////////////////////////////////////
-            Key key = get_key_(elem.value);
             Node_ARC_T_ n_value = {key, std::move(elem.value)};
 
             std::pair< std::optional<Value>, Value* > value_of_last_it_add{};  // for ret вытеснутого
@@ -221,9 +219,9 @@ class ARCCacheLevel
             ////////////////////////////////////////////////////////////////////////////
         }
 
-        AddResult add(Value value)
+        AddResult add(Value value, Key key)
         {
-            return add<ARCMeta>({std::move(value), {}});
+            return add<ARCMeta>({std::move(value), {}}, key);
         }
 
 
@@ -436,26 +434,46 @@ class ARCCacheLevel
 
     //_________________________________________________________________________________________________________________________________________//
 
-        ARCCacheLevel(Extractor key, size_t sz_of_summ_of_T, size_t sz_of_T_one, size_t sz_of_B_one, size_t sz_of_B_two, Hash hash_func) :
-            size_(sz_of_summ_of_T),
-            size_T1_(sz_of_T_one),
+        inline LevelSpec<ARCCacheLevel, OptionsARC>
+        Custom(size_t sz_of_summ_of_T, size_t sz_of_T_one, size_t sz_of_B_one, size_t sz_of_B_two)
+        {
+            return level<ARCCacheLevel, OptionsARC>(OptionsARC{sz_of_summ_of_T, sz_of_T_one, sz_of_B_one, sz_of_B_two});
+        }
+        
+        inline LevelSpec<ARCCacheLevel, OptionsARC>
+        Custom(size_t capacity)
+        {
+            return level<ARCCacheLevel, OptionsARC>(OptionsARC{capacity});
+        }
 
-            size_B1_(sz_of_B_one),
-            size_B2_(sz_of_B_two),
+        ARCCacheLevel(const OptionsARC& options, Hash hash_func) :
+            size_(options.sz_of_summ_of_T),
+            size_T1_(options.sz_of_T_one),
 
-            get_key_(key)
+            size_B1_(options.sz_of_B_one),
+            size_B2_(options.sz_of_B_two),
+
+            T1_Htable_(size_T1_, hash_func),
+            T2_Htable_(size_ - size_T1_, hash_func),
+
+            B1_Htable_(size_B1_, hash_func),
+            B2_Htable_(size_B2_, hash_func),
         {
             if ( (size_ < 1) || (size_T1_ < 1) || (size_B1_ < 1) || (size_B2_ < 1) || (size_T1_ >= size_))
                 throw std::invalid_argument("need size of cache ARC > 0");
         }
-        ARCCacheLevel(size_t capacity, Extractor key, Hash hash_func) :
+        ARCCacheLevel(size_t capacity, Hash hash_func) :
             size_(capacity),
             size_T1_(capacity / 2),
 
             size_B1_(capacity / 2),
             size_B2_(capacity / 2),
 
-            get_key_(key)
+            T1_Htable_(size_T1_, hash_func),
+            T2_Htable_(size_ - size_T1_, hash_func),
+
+            B1_Htable_(size_B1_, hash_func),
+            B2_Htable_(size_B2_, hash_func),
         {
             if (size_ < 2)
                 throw std::invalid_argument("need size of cache ARC > 0");
