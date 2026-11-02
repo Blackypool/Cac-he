@@ -1,7 +1,7 @@
 // #include "my_cache/pbd.hpp"
 #include "my_cache/runtime.hpp"
-#include "my_cache/policies/lfu_policy.hpp"
-#include "my_cache/policies/lru_policy.hpp"
+#include "my_cache/policies/arc_policy.hpp"
+#include "my_cache/policies/two_q_policy.hpp"
 
 
 #include <chrono>
@@ -88,9 +88,9 @@ int main (void)
     typename MyCache::runtime::CacheBuilder<Key, Value>
     builder(Loader{});
 
-    builder.add_level(MyCache::policy::LFU(10));
-    builder.add_level(MyCache::policy::LRU(20));
-    builder.add_level(MyCache::policy::LFU(30));
+    builder.add_level(MyCache::policy::ARC(10));
+    builder.add_level(MyCache::policy::TwoQ(20));
+    builder.add_level(MyCache::policy::ARC(30));
 
     auto cache = builder.build();
 

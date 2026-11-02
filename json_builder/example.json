@@ -1,0 +1,16 @@
+{
+  "levels": [
+    {
+      "policy": "lru",
+      "options": {
+        "capacity": 1
+      }
+    },
+    {
+      "policy": "lfu",
+      "options": {
+        "capacity": 2
+      }
+    }
+  ]
+}
