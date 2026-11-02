@@ -58,8 +58,8 @@ class Cache
     public:
         
         Cache(Loader loader, std::vector<LevelPtr> levels)
-        :   loader_(std::move(loader)),
-            levels_(std::move(levels))
+        :   levels_(std::move(levels)),
+            loader_(std::move(loader))
         {}
 
         void add(Key key, Value value)
@@ -91,7 +91,7 @@ class Cache
                 }
             }
 
-            Value value = load_(key);
+            Value value = loader_(key);
 
             return add_new(
                 std::move(key),

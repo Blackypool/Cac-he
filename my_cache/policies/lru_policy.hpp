@@ -150,8 +150,10 @@ class LRUCacheLevel
                 return std::nullopt;
 
             Transfer result{
-                std::move(it->second->key), 
-                std::move(it->second->value), 
+                Entry {
+                    std::move(it->second->key),
+                    std::move(it->second->value)
+                },
                 LRUMeta{}
             };
 

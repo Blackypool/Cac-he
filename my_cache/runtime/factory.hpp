@@ -17,7 +17,7 @@ auto make_level(Spec spec, Hash hash_func = std::hash<Key>{})
     using Policy = Spec::template Level<Key, Value, Hash>;
 
     return std::unique_ptr<Level> (
-        std::make_unique<PolicyAdapter<Key, Value, Policy>>(policy)
+        std::make_unique<PolicyAdapter<Key, Value, Policy>>(std::move(policy))
     );
 }
 
@@ -42,7 +42,7 @@ class CacheBuilder
     public:
 
         CacheBuilder(Loader loader) 
-        :   loader_(loader)
+        :   loader_(std::move(loader))
         {}
 
         template<typename Spec>
@@ -57,7 +57,7 @@ class CacheBuilder
         
         void add_level(LevelPtr level)
         {
-            levels_.push_front(std::move(level));
+            levels_.push_back(std::move(level));
         }
 
         Cache<Key, Value> build()

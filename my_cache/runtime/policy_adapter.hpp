@@ -29,7 +29,7 @@ class PolicyAdapter final :
 
         AddResult<Evicted, Value> add(Entry entry) override
         {
-            auto result = policy_.add(entry);
+            auto result = policy_.add(std::move(entry));
 
             std::optional<Evicted> evicted;
 

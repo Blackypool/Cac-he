@@ -1,8 +1,6 @@
 #ifndef TWO_Q_POLICY_HH
 #define TWO_Q_POLICY_HH
 
-#include "lru_policy.hpp"
-
 #include <utility>
 #include <optional>
 #include <list>
@@ -15,9 +13,10 @@
 #include <ostream>
 #include <vector>
 
-#include "types.h"
+#include "lru_policy.hpp"
 
-namespace MyCache {
+namespace MyCache::policy
+{
 
 struct OptionsTwoQ
 {
@@ -29,10 +28,23 @@ struct OptionsTwoQ
 
 struct TwoQTag {};
 
-struct TwoQMeta
+template <typename Key>
+struct TwoQMetaFull
 {
+    std::optional< Key > for_up;
     using compatibility = TwoQTag; 
 };
+
+template <typename AnyMeta, typename Key>
+concept IsCompatible2Q = requires(const AnyMeta& meta)
+{
+    typename AnyMeta::compatibility;
+
+    requires std::same_as<typename AnyMeta::compatibility, TwoQTag>;
+
+    {meta.for_up} -> std::convertible_to<std::optional<Key>>;
+};
+
 
 // ======================================================= 2Q cachelevel class ==================================================
 template <
@@ -42,10 +54,12 @@ template <
 >
 class TwoQCacheLevel
 {
-    private:
-        inline static std::optional<Key> last_key_for_up_{};
-    //_________________________________________________________________________________________________________________________________________//
+    public:
+        using TwoQMeta = TwoQMetaFull<Key>;
+        using Entry = CacheEntry<Key, Value>;
+        using Transfer = CacheTransfer<Entry, TwoQMeta>;
     
+    private:
         size_t size_A1_;     
         size_t size_Am_;     
         size_t size_A1out_;  
@@ -73,29 +87,39 @@ class TwoQCacheLevel
         // Am -- LRU -- >= 2 запросов
         LRUCacheLevel <Key, Value, Hash> Am_LRU_;
 
+        struct MiddleStruct
+        {
+            std::optional <std::pair<Key, Value> > evict;
+            Value* inser;
+        };
+
     //_________________________________________________________________________________________________________________________________________//
         
-        std::optional<Value> add_to_A1 (Node_2Q_A1_ n_value)
+        MiddleStruct add_to_A1 (Node_2Q_A1_ n_value)
         {
-            std::optional<Value> value_of_last = std::nullopt;
+            std::optional <std::pair<Key, Value> > value_of_last = std::nullopt;
 
             //////////////CHECK_SIZE////////////////    
             if (A1_list_.size() >= size_A1_)
             {
                 typename std::list<Node_2Q_A1_>::iterator it_last = std::prev(A1_list_.end());  // check it of last in list
-                value_of_last = std::move(it_last->value);                           // move владение of last
+                
+                value_of_last.emplace(
+                                        std::move(it_last->key),
+                                        std::move(it_last->value));
 
-                remove_out_A1 (it_last->key);
+                remove_out_A1(value_of_last->first);
             }
             ////////////////////////////////////////
-    
+
 
             //////////////////ADD///////////////////            
             A1_list_.push_front(std::move(n_value));                     // add new value in list
-            A1_Htable_.emplace(A1_list_.front().key, A1_list_.begin());  // add new it in Ht
+            auto inserted_it = A1_list_.begin();
+            A1_Htable_.emplace(inserted_it->key, inserted_it);  // add new it in Ht
             ////////////////////////////////////////
             
-            return value_of_last;
+            return {std::move(value_of_last), &inserted_it->value};
         }
 
         void remove_out_A1 (Key key)
@@ -133,7 +157,7 @@ class TwoQCacheLevel
 
     
             //////////////////ADD///////////////////            
-            A1out_list_.push_front(n_key);                          // add new value in list
+            A1out_list_.push_front(n_key);                          // add new key in list
             A1out_Htable_.emplace(n_key.key, A1out_list_.begin());  // add new it in Ht
             ////////////////////////////////////////
         }
@@ -147,43 +171,81 @@ class TwoQCacheLevel
     //_________________________________________________________________________________________________________________________________________//
     public:
 
-        AddResult<CacheTransfer<Key, Value, TwoQMeta>, Value> add(CacheTransfer<Key, Value, TwoQMeta> elem, Key key)
-        {
-            ////////////////UPPER///////////////////
-            if (last_key_for_up_ == key)  // => go to Am
-            {
-                // if в L1 выпал из А1 и попал в Aout и попадает в L2 A1 -> при поиске находим в Aout L1 сохраняем флаг, находим в L2 и переносим в Am L1
-                auto last_ret_add = Am_LRU_.add(std::move(elem.value));  // add in Am
-                std::optional<CacheTransfer<Key, Value, TwoQMeta>> evicted = std::nullopt;
+        // extract not delete in A1out
+        // get not delete in A1out (it is work for add)
+        // add delete in A1out and check need li to Am
+        // contains just check
 
-                if (last_ret_add.evicted != std::nullopt)
+        template <typename AnyMeta>
+        AddResult<Transfer, Value>
+        add(CacheTransfer<Entry, AnyMeta> came)
+        {
+            ///////////////////////////////META/////////////////////////////////////////
+            TwoQMeta meta{};
+
+            if constexpr (IsCompatible2Q<AnyMeta, Key>)
+                meta.for_up = came.meta.for_up;
+
+            Transfer elem
+            {
+                Entry{
+                    std::move(came.entry.key),
+                    std::move(came.entry.value) },
+                std::move(meta)
+            };
+            ////////////////////////////////////////////////////////////////////////////
+
+
+            ////////////////UPPER///////////////////
+            auto it_A1_out_Ht = A1out_Htable_.find(elem.entry.key);
+            if (it_A1_out_Ht != A1out_Htable_.end())
+            {
+                remove_out_A1_out(it_A1_out_Ht);
+                elem.meta.for_up.emplace(elem.entry.key);
+            }
+
+            if (elem.meta.for_up == elem.entry.key)  // => go to Am
+            {
+                auto last_ret_add = Am_LRU_.add(std::move(elem.entry));
+                std::optional<Transfer> evicted = std::nullopt;
+
+                if (last_ret_add.evicted)
                 {
-                    last_key_for_up_ = last_ret_add.evicted->key;
-                    evicted.emplace(CacheTransfer<Key, Value, TwoQMeta> {std::move(last_ret_add.evicted->value), TwoQMeta{}} );
+                    evicted.emplace(
+                        Transfer{ Entry {
+                                        std::move(last_ret_add.evicted->entry.key),
+                                        std::move(last_ret_add.evicted->entry.value)}, 
+                                        TwoQMeta{}
+                        }
+                    );
+
+                    evicted->meta.for_up = evicted->entry.key;
                 }
                 else
-                    last_key_for_up_.reset();
+                    elem.meta.for_up.reset();
 
-                return {std::move(evicted), &last_ret_add.inserted};
+                return {std::move(evicted), last_ret_add.inserted};
             }
             ////////////////////////////////////////
 
 
             //////////////////A1///////////////////            
-            Node_2Q_A1_ n_value = {key, std::move(elem.value)};      
-            std::optional<Value> last_val = add_to_A1 (std::move(n_value));
+            Node_2Q_A1_ n_value = {elem.entry.key, std::move(elem.entry.value)};      
+            MiddleStruct last_val = add_to_A1 (std::move(n_value));
 
-            std::optional<CacheTransfer<Key, Value, TwoQMeta>> evicted = std::nullopt;
-            if (last_val != std::nullopt)
-                evicted.emplace(CacheTransfer<Key, Value, TwoQMeta> {std::move(*last_val), TwoQMeta{}});
+            std::optional<Transfer> evicted = std::nullopt;
+            if (last_val.evict != std::nullopt)
+                evicted.emplace(Transfer {Entry {std::move(last_val.evict->first), 
+                                                 std::move(last_val.evict->second)}, 
+                                                 TwoQMeta{}});
 
-            return {std::move(evicted), &A1_list_.front().value};
+            return {std::move(evicted), last_val.inser};
             ////////////////////////////////////////
         }
 
-        AddResult<CacheTransfer<Key, Value, TwoQMeta>, Value> add(Value value, Key key)
-        {   
-            return add<TwoQMeta>({std::move(value), {}}, key);
+        AddResult<Transfer, Value> add(Entry entry)
+        {
+            return add(Transfer{std::move(entry), TwoQMeta{}});
         }
 
         const Value* get(const Key& key)
@@ -202,45 +264,14 @@ class TwoQCacheLevel
             ////////////////////////////////////////
 
 
-            ////////////////A1_out//////////////////
-            auto it_A1out = A1out_Htable_.find(key);
-            if (it_A1out != A1out_Htable_.end())
-            {
-                last_key_for_up_ = key;
-                remove_out_A1_out (it_A1out);
-
-                return nullptr;
-            }
-            ////////////////////////////////////////
-
-            // cache-miss
+            // cache-miss // A1_out
             return nullptr;
         }
 
-        bool contains(const Key& key)
+        bool contains(const Key& key) const
         {
-            //////////////////A1////////////////////
-            auto it_A1 = A1_Htable_.find(key);
-            if (it_A1 != A1_Htable_.end())
-                return true;
-            ////////////////////////////////////////
-
-
-            ////////////////GHOST///////////////////
-            auto it_A1_out = A1out_Htable_.find(key);
-            if (it_A1_out != A1out_Htable_.end())
-            {
-                last_key_for_up_ = key;
-                remove_out_A1_out (it_A1_out);
-
-                return false;
-            }
-            ////////////////////////////////////////
-
-
-            //////////////////Am////////////////////
-            return Am_LRU_.find(key);
-            ////////////////////////////////////////
+            return A1_Htable_.find(key) != A1_Htable_.end()
+                || Am_LRU_.contains(key);
         }
 
         void remove (const Key& key)
@@ -269,13 +300,15 @@ class TwoQCacheLevel
             ////////////////////////////////////////
         }
 
-        std::optional<CacheTransfer<Key, Value, TwoQMeta>> extract(const Key& key)
+        std::optional<Transfer> extract(const Key& key)
         {
             /////////////////A1/////////////////////
             auto it_A1 = A1_Htable_.find(key);
             if (it_A1 != A1_Htable_.end())
             {
-                CacheTransfer<Key, Value, TwoQMeta> result{std::move(it_A1->second->value), TwoQMeta{}};
+                Transfer result{ Entry {std::move(it_A1->second->key),
+                                        std::move(it_A1->second->value)}, 
+                                        TwoQMeta{}};
 
                 A1_list_.erase(it_A1->second);
                 A1_Htable_.erase(it_A1);
@@ -288,28 +321,58 @@ class TwoQCacheLevel
             ////////////////A1_out//////////////////
             auto it_A1out = A1out_Htable_.find(key);
             if (it_A1out != A1out_Htable_.end())
-            {
-                last_key_for_up_ = key;
-
-                remove_out_A1_out (it_A1out);
                 return std::nullopt;
-            }
             ////////////////////////////////////////
 
 
             //////////////////Am////////////////////
             auto inner = Am_LRU_.extract(key);
-            if (inner == std::nullopt)
+            if (!inner)
                 return std::nullopt;
 
-            last_key_for_up_ = key;     // because up from Am need add to Am
-            return CacheTransfer<Key, Value, TwoQMeta>{std::move(inner->value), TwoQMeta{}};
+            return Transfer{std::move(inner->entry), TwoQMeta{key}};
             ////////////////////////////////////////
         }
 
         void dump(std::ostream& out) const
         {
-            
+            out << "  [ 2Q Policy State ]\n"
+                << "    Capacity  : " << size_A1_ + size_Am_ << '\n'
+                << "    A1 size   : " << A1_list_.size()
+                << '/' << size_A1_ << '\n'
+                << "    Am limit  : " << size_Am_ << '\n'
+                << "    A1out size: " << A1out_list_.size()
+                << '/' << size_A1out_ << '\n';
+
+            const auto dump_list =
+                [&out](const char* name, const auto& list)
+                {
+                    out << "\n  [ " << name << " (newest -> oldest) ]\n"
+                        << "  --------------------------------\n";
+
+                    if (list.empty())
+                    {
+                        out << "      (empty)\n";
+                    }
+                    else
+                    {
+                        std::size_t index = 1;
+                        for (const auto& node : list)
+                        {
+                            out << "      " << index++
+                                << ". [" << node.key << "]\n";
+                        }
+                    }
+
+                    out << "  --------------------------------\n";
+                };
+
+            dump_list("A1 FIFO Queue", A1_list_);
+
+            out << "\n  [ Am LRU Cache ]\n";
+            Am_LRU_.dump(out);
+
+            dump_list("A1out Ghost Queue", A1out_list_);
         }
 
     //_________________________________________________________________________________________________________________________________________//
@@ -319,30 +382,26 @@ class TwoQCacheLevel
             size_Am_(options.size_of_Am_cache),    
             size_A1out_(options.size_of_A1out_cache),  
 
-            Am_LRU_(size_Am_, hash_func),
-
+            A1_Htable_(size_A1_, hash_func),
             A1out_Htable_(size_A1out_, hash_func),
-            A1_Htable_(size_A1_, hash_func)
+            Am_LRU_(OptionsLRU{size_Am_}, hash_func)
         {
             if ( (size_A1_ < 1) || (size_Am_ < 1) || (size_A1out_ < 1))
                 throw std::invalid_argument("need size of cache 2Q > 0");
         }
 
-        // A1 = 0.25  Am = 0.75  A1out = 1.00
         TwoQCacheLevel(size_t capacity, Hash hash_func) :        
             size_A1_(capacity / 4),  
-            size_Am_(3 * capacity / 4),    
+            size_Am_(capacity - capacity / 4),
             size_A1out_(capacity),  
 
-            Am_LRU_(size_Am_, hash_func),
-
+            A1_Htable_(size_A1_, hash_func),
             A1out_Htable_(size_A1out_, hash_func),
-            A1_Htable_(size_A1_, hash_func)
+            Am_LRU_(OptionsLRU{size_Am_}, hash_func)
         {
             if ( (capacity < 4))
                 throw std::invalid_argument("need size of cache 2Q > 0");
         }
-        ~TwoQCacheLevel() = default;
 };
 
 inline LevelSpec<TwoQCacheLevel, OptionsTwoQ>
@@ -354,7 +413,10 @@ TwoQ(size_t size_of_A1_cache, size_t size_of_Am_cache, size_t size_of_A1out_cach
 inline LevelSpec<TwoQCacheLevel, OptionsTwoQ>
 TwoQ(size_t capacity)
 {
-    return level<TwoQCacheLevel, OptionsTwoQ>(OptionsTwoQ{capacity});
+    if (capacity < 4)
+        throw std::invalid_argument("need capacity of cache 2Q >= 4");
+
+    return level<TwoQCacheLevel, OptionsTwoQ>(OptionsTwoQ{capacity / 4, capacity - capacity / 4, capacity});
 }
 
 }
