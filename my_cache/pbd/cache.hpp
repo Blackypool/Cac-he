@@ -1,6 +1,11 @@
-#ifndef CACHE_HH
-#define CACHE_HH
+#pragma once
 
+#include "../types.hpp"
+#include "../errors.hpp"
+
+#include <cstddef>
+#include <functional>
+#include <type_traits>
 #include <utility>
 #include <optional>
 #include <list>
@@ -22,6 +27,8 @@ template <
 >
 class Cache  
 {
+    static_assert(sizeof...(Policies) > 0, "Cache requires at least one level");
+
     public:
 
         using Entry = CacheEntry<Key, Value>;
@@ -83,12 +90,32 @@ class Cache
             {
                 Value value = load_(key);
                 return add_new (
-                    std::move(key),
+                    key,
                     std::move(value)
                 );
             }
         }
         
+        template<std::size_t I>
+        void remove_circle(const Key& key)
+        {
+            auto& level = std::get<I>(levels_);
+
+            if (level.contains(key))
+            {
+                level.remove(key);
+                return;
+            }
+            else
+            {
+                if constexpr (I + 1 < sizeof...(Policies))
+                {
+                    remove_circle<I + 1>(key);
+                    return;
+                }
+            }
+        }
+
         template <std::size_t I>
         void level_dump(std::ostream& out) const
         {
@@ -107,9 +134,20 @@ class Cache
     public:
 
         Cache(Loader load, Policies ... policies) 
-            :   load_(load),
+            :   load_(std::move(load)),
                 levels_(std::move(policies) ...)
-        {}
+        {
+            if constexpr (
+                std::is_pointer_v<Loader> ||
+                std::is_same_v<Loader, std::function<Value(const Key&)>>
+            )
+            {
+                if (!load_)
+                {
+                    throw configuration_error{"Cache loader must not be empty"};
+                }
+            }
+        }
 
         void add(Key key, Value value)
         {
@@ -124,7 +162,7 @@ class Cache
             );
         }
 
-        const Value* get(Key key)
+        const Value* get(const Key& key)
         {
             auto& L1 = std::get<0>(levels_);
 
@@ -147,24 +185,9 @@ class Cache
             );
         }
 
-        template<std::size_t I>
         void remove(const Key& key)
         {
-            auto level = std::get<I>(levels_);
-
-            if (level.contains(key))
-            {
-                level.remove(key);
-                return;
-            }
-            else
-            {
-                if constexpr (I + 1 < sizeof...(Policies))
-                {
-                    remove<I + 1>(key);
-                    return;
-                }
-            }
+            remove_circle<0>(key);
         }
 
         void dump(std::ostream& out) const
@@ -179,5 +202,3 @@ class Cache
 
 
 } // MyCache::pbd
-
-#endif // CACHE_HH

@@ -1,9 +1,13 @@
-#ifndef FACTORY_HH
-#define FACTORY_HH
+#pragma once
+
+#include "../level_spec.hpp"
+#include "cache.hpp"
 
 #define MAX_LEVELS_NUM 5
 
 #include <unordered_map>
+#include <functional>
+#include <utility>
 
 namespace MyCache::pbd {
 
@@ -45,5 +49,3 @@ auto make_cache(Loader load_func, Hash hash_func = std::hash<Key>{}, Specs ... s
 }
 
 } // MyCache::pbd
-
-#endif // FACTORY_HH

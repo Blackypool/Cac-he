@@ -1,5 +1,4 @@
-#ifndef TYPES_HH
-#define TYPES_HH
+#pragma once
 
 #include <optional>
 
@@ -29,5 +28,3 @@ struct AddResult
 };
 
 } // MyCache
-
-#endif // TYPES_HH

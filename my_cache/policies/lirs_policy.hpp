@@ -1,7 +1,8 @@
-#ifndef LIRS_POLICY_HH
-#define LIRS_POLICY_HH
+#pragma once
 
-#include "cache.hpp"
+#include "../level_spec.hpp"
+#include "../types.hpp"
+#include "../errors.hpp"
 
 #include <algorithm>
 #include <concepts>
@@ -15,9 +16,7 @@
 #include <unordered_map>
 #include <utility>
 
-#include "types.h"
-
-namespace MyCache {
+namespace MyCache::policy {
 
 struct LIRSTag {};
 
@@ -56,7 +55,6 @@ class LIRSCacheLevel
 
         using KeyList = std::list<Key>;
         using KeyIterator = typename KeyList::iterator;
-        using 
 
         struct ResidentNode
         {
@@ -265,7 +263,7 @@ class LIRSCacheLevel
             prune_stack();
         }
 
-        std::optional<CacheTransfer<Key, Value, LIRSMeta>>
+        std::optional<CacheTransfer<CacheEntry<Key, Value>, LIRSMeta>>
         evict_hir_if_needed()
         {
             if (resident_.size() <= capacity_)
@@ -298,9 +296,11 @@ class LIRSCacheLevel
             hir_queue_.pop_back();
             victim->second.in_queue = false;
 
-            CacheTransfer<Key, Value, LIRSMeta> evicted {
-                victim->first,
-                std::move(victim->second.value),
+            CacheTransfer<CacheEntry<Key, Value>, LIRSMeta> evicted {
+                CacheEntry<Key, Value> {
+                    victim->first,
+                    std::move(victim->second.value)
+                },
                 LIRSMeta{false}
             };
 
@@ -336,7 +336,8 @@ class LIRSCacheLevel
 
     public:
 
-        using Transfer = CacheTransfer<Key, Value, LIRSMeta>;
+        using Entry = CacheEntry<Key, Value>;
+        using Transfer = CacheTransfer<Entry, LIRSMeta>;
 
         LIRSCacheLevel(OptionsLIRS options, Hash hash_func)
             : capacity_(options.capacity),
@@ -347,38 +348,39 @@ class LIRSCacheLevel
                       : 0
               ),
               history_capacity_(options.history_capacity),
-              stack_pos_(options.capacity, hash_func),
-              resident_(options.capacity, std::move(hash_func))
+              stack_pos_(0, hash_func),
+              resident_(0, std::move(hash_func))
         {
             if (capacity_ == 0)
             {
-                throw std::invalid_argument(
+                throw configuration_error(
                     "LIRS cache capacity must be positive"
                 );
             }
 
             if (hir_capacity_ == 0 || hir_capacity_ > capacity_)
             {
-                throw std::invalid_argument(
+                throw configuration_error(
                     "LIRS HIR capacity must be in range [1, capacity]"
                 );
             }
 
             if (capacity_ > 1 && hir_capacity_ == capacity_)
             {
-                throw std::invalid_argument(
+                throw configuration_error(
                     "LIRS cache with capacity greater than one must keep "
                     "at least one LIR block"
                 );
             }
+            stack_pos_.reserve(capacity_);
+            resident_.reserve(capacity_);
         }
 
-        AddResult<Transfer, Value> add(Value value, Key key)
+        AddResult<Transfer, Value> add(Entry entry)
         {
             return add(
                 Transfer {
-                    std::move(key),
-                    std::move(value),
+                    std::move(entry),
                     LIRSMeta{false}
                 }
             );
@@ -386,10 +388,10 @@ class LIRSCacheLevel
 
         template <typename AnyMeta>
         AddResult<Transfer, Value> add(
-            CacheTransfer<Key, Value, AnyMeta> elem
+            CacheTransfer<Entry, AnyMeta> elem
         )
         {
-            auto old = resident_.find(elem.key);
+            auto old = resident_.find(elem.entry.key);
 
             if (old != resident_.end())
             {
@@ -398,13 +400,13 @@ class LIRSCacheLevel
             }
 
             const bool was_ghost =
-                stack_pos_.find(elem.key) != stack_pos_.end();
+                stack_pos_.find(elem.entry.key) != stack_pos_.end();
             const bool lir_hint = extract_lir_hint(elem.meta);
 
             auto [resident, inserted] = resident_.emplace(
-                std::move(elem.key),
+                std::move(elem.entry.key),
                 ResidentNode {
-                    std::move(elem.value),
+                    std::move(elem.entry.value),
                     false,
                     false,
                     KeyIterator{}
@@ -475,8 +477,10 @@ class LIRSCacheLevel
                 stack_pos_.find(key) != stack_pos_.end();
 
             Transfer extracted {
-                resident->first,
-                std::move(resident->second.value),
+                Entry {
+                    resident->first,
+                    std::move(resident->second.value)
+                },
                 LIRSMeta{was_lir}
             };
 
@@ -640,6 +644,4 @@ inline LevelSpec<LIRSCacheLevel, OptionsLIRS> LIRS(std::size_t capacity)
     return LIRS(capacity, hir_capacity, capacity);
 }
 
-} // namespace MyCache
-
-#endif // LIRS_POLICY_HH
+} // namespace MyCache::policy

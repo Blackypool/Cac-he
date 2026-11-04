@@ -1,6 +1,11 @@
-#ifndef TWO_Q_POLICY_HH
-#define TWO_Q_POLICY_HH
+#pragma once
 
+#include "../level_spec.hpp"
+#include "../types.hpp"
+#include "../errors.hpp"
+#include "lru_policy.hpp"
+
+#include <cstddef>
 #include <utility>
 #include <optional>
 #include <list>
@@ -13,17 +18,15 @@
 #include <ostream>
 #include <vector>
 
-#include "lru_policy.hpp"
-
 namespace MyCache::policy
 {
 
 struct OptionsTwoQ
 {
-    size_t size_of_A1_cache;
-    size_t size_of_Am_cache;
+    std::size_t size_of_A1_cache;
+    std::size_t size_of_Am_cache;
 
-    size_t size_of_A1out_cache;
+    std::size_t size_of_A1out_cache;
 };
 
 struct TwoQTag {};
@@ -60,9 +63,9 @@ class TwoQCacheLevel
         using Transfer = CacheTransfer<Entry, TwoQMeta>;
     
     private:
-        size_t size_A1_;     
-        size_t size_Am_;     
-        size_t size_A1out_;  
+        std::size_t size_A1_;
+        std::size_t size_Am_;
+        std::size_t size_A1out_;
 
 
         // A1 -- FIFO -- new objects
@@ -382,43 +385,42 @@ class TwoQCacheLevel
             size_Am_(options.size_of_Am_cache),    
             size_A1out_(options.size_of_A1out_cache),  
 
-            A1_Htable_(size_A1_, hash_func),
-            A1out_Htable_(size_A1out_, hash_func),
+            A1_Htable_(0, hash_func),
+            A1out_Htable_(0, hash_func),
             Am_LRU_(OptionsLRU{size_Am_}, hash_func)
         {
             if ( (size_A1_ < 1) || (size_Am_ < 1) || (size_A1out_ < 1))
-                throw std::invalid_argument("need size of cache 2Q > 0");
+                throw configuration_error("2Q requires positive A1, Am and A1out capacities");
+
+            A1_Htable_.reserve(size_A1_);
+            A1out_Htable_.reserve(size_A1out_);
         }
 
-        TwoQCacheLevel(size_t capacity, Hash hash_func) :        
-            size_A1_(capacity / 4),  
-            size_Am_(capacity - capacity / 4),
-            size_A1out_(capacity),  
-
-            A1_Htable_(size_A1_, hash_func),
-            A1out_Htable_(size_A1out_, hash_func),
-            Am_LRU_(OptionsLRU{size_Am_}, hash_func)
-        {
-            if ( (capacity < 4))
-                throw std::invalid_argument("need size of cache 2Q > 0");
-        }
+        TwoQCacheLevel(std::size_t capacity, Hash hash_func) :
+            TwoQCacheLevel(
+                OptionsTwoQ{capacity / 4, capacity - capacity / 4, capacity},
+                std::move(hash_func)
+            )
+        {}
 };
 
 inline LevelSpec<TwoQCacheLevel, OptionsTwoQ>
-TwoQ(size_t size_of_A1_cache, size_t size_of_Am_cache, size_t size_of_A1out_cache)
+TwoQ(
+    std::size_t size_of_A1_cache,
+    std::size_t size_of_Am_cache,
+    std::size_t size_of_A1out_cache
+)
 {
     return level<TwoQCacheLevel, OptionsTwoQ>(OptionsTwoQ{size_of_A1_cache, size_of_Am_cache, size_of_A1out_cache});
 }
 
 inline LevelSpec<TwoQCacheLevel, OptionsTwoQ>
-TwoQ(size_t capacity)
+TwoQ(std::size_t capacity)
 {
     if (capacity < 4)
-        throw std::invalid_argument("need capacity of cache 2Q >= 4");
+        throw configuration_error("2Q cache capacity must be at least 4");
 
     return level<TwoQCacheLevel, OptionsTwoQ>(OptionsTwoQ{capacity / 4, capacity - capacity / 4, capacity});
 }
 
 }
-
-#endif // TWO_Q_POLICY_HH

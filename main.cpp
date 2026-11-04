@@ -92,7 +92,7 @@ int main (void)
     builder.add_level(MyCache::policy::TwoQ(20));
     builder.add_level(MyCache::policy::ARC(30));
 
-    auto cache = builder.build();
+    auto cache = std::move(builder).build();
 
     for (int i = 0; i < 100; i++)
     {

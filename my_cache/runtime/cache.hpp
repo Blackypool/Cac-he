@@ -1,8 +1,15 @@
-#ifndef CACHE_HPP
-#define CACHE_HPP
+#pragma once
 
-#include <memory>
+#include "../types.hpp"
+#include "../errors.hpp"
+#include "cache_level.hpp"
+
+#include <cstddef>
 #include <functional>
+#include <memory>
+#include <ostream>
+#include <utility>
+#include <vector>
 
 namespace MyCache::runtime {
 
@@ -60,7 +67,23 @@ class Cache
         Cache(Loader loader, std::vector<LevelPtr> levels)
         :   levels_(std::move(levels)),
             loader_(std::move(loader))
-        {}
+        {
+            if (!loader_)
+            {
+                throw configuration_error{"Cache loader must not be empty"};
+            }
+            if (levels_.empty())
+            {
+                throw configuration_error{"Cache must contain at least one level"};
+            }
+            for (const auto& level : levels_)
+            {
+                if (!level)
+                {
+                    throw configuration_error{"Cache level must not be null"};
+                }
+            }
+        }
 
         void add(Key key, Value value)
         {
@@ -69,10 +92,13 @@ class Cache
                 return;
             }
 
-            add_new(key, value);
+            add_new(
+                std::move(key),
+                std::move(value)
+            );
         }
 
-        const Value* get(Key key)
+        const Value* get(const Key& key)
         {
             if (const Value* value = levels_[0]->get(key))
             {
@@ -94,7 +120,7 @@ class Cache
             Value value = loader_(key);
 
             return add_new(
-                std::move(key),
+                key,
                 std::move(value)
             );
         }
@@ -139,5 +165,3 @@ class Cache
 };
 
 } // MyCache::runtime
-
-#endif // CACHE_HPP

@@ -1,6 +1,10 @@
-#ifndef LFU_POLICY_HH
-#define LFU_POLICY_HH
+#pragma once
 
+#include "../level_spec.hpp"
+#include "../types.hpp"
+#include "../errors.hpp"
+
+#include <cstddef>
 #include <utility>
 #include <optional>
 #include <list>
@@ -17,13 +21,13 @@ namespace MyCache::policy {
 struct LFUTag {};
 struct LFUMeta
 {
-    size_t freq;
+    std::size_t freq;
     using compatibility = LFUTag;
 };
 
 struct OptionsLFU
 {
-    size_t capacity;
+    std::size_t capacity;
 };
 
 template<typename AnyMeta>
@@ -33,7 +37,7 @@ concept IsCompatibleLFU = requires(AnyMeta meta)
     
     requires std::same_as<typename AnyMeta::compatibility, LFUTag>;
 
-    {meta.freq} -> std::convertible_to<size_t>;
+    {meta.freq} -> std::convertible_to<std::size_t>;
 };
 
 // =================================================== LFU cachelevel class ================================================
@@ -61,15 +65,15 @@ class LFUCacheLevel
         using UMD = std::list<ListNode>;
         using UMP = std::list<ListNode>::iterator;
 
-        size_t cur_size_ = 0;
-        size_t min_freq_ = 0;
-        size_t capacity_;
+        std::size_t cur_size_ = 0;
+        std::size_t min_freq_ = 0;
+        std::size_t capacity_;
 
         std::unordered_map <Key, UMP, Hash> table_p_;
-        std::unordered_map <size_t, UMD> table_d_;
+        std::unordered_map <std::size_t, UMD> table_d_;
 
         template <typename AnyMeta>
-        size_t extract_freq(const AnyMeta& meta)
+        std::size_t extract_freq(const AnyMeta& meta)
         {
             if constexpr (IsCompatibleLFU<AnyMeta>)
             {
@@ -113,7 +117,7 @@ class LFUCacheLevel
                 return;
             }
 
-            size_t new_freq = std::numeric_limits<size_t>::max();
+            std::size_t new_freq = std::numeric_limits<std::size_t>::max();
 
             for (const auto& [freq, list] : table_d_)
             {
@@ -130,9 +134,15 @@ class LFUCacheLevel
 
         LFUCacheLevel (OptionsLFU options, Hash hash_func)  
             : capacity_(options.capacity),
-              table_p_ (capacity_, hash_func),
-              table_d_ (capacity_) 
-        {}
+              table_p_ (0, hash_func)
+        {
+            if (capacity_ == 0)
+            {
+                throw configuration_error{"LFU cache capacity must be positive"};
+            }
+            table_p_.reserve(capacity_);
+            table_d_.reserve(capacity_);
+        }
 
         AddResult<Transfer, Value> add(Entry entry)
         {   
@@ -146,7 +156,7 @@ class LFUCacheLevel
         template <typename AnyMeta>
         AddResult<Transfer, Value> add(CacheTransfer<Entry, AnyMeta> tranfer)
         {
-            size_t freq = extract_freq(tranfer.meta);
+            std::size_t freq = extract_freq(tranfer.meta);
             auto& list = table_d_[freq];
             std::optional<Transfer> evicted;
 
@@ -198,7 +208,7 @@ class LFUCacheLevel
                 {it_d->meta.freq + 1}
             };
 
-            size_t freq = it_d->meta.freq;
+            std::size_t freq = it_d->meta.freq;
             auto&  list = table_d_[freq];
 
             table_p_.erase(it_p);
@@ -223,7 +233,7 @@ class LFUCacheLevel
             
             UMP it_d = it_p->second;
             
-            size_t freq = it_d->meta.freq;
+            std::size_t freq = it_d->meta.freq;
             auto& list_from = table_d_[freq];
             auto& list_to   = table_d_[++it_d->meta.freq];
 
@@ -252,7 +262,7 @@ class LFUCacheLevel
             if (it_p == table_p_.end()) return;
             
             UMP it_d = it_p->second;
-            size_t freq = it_d->meta.freq;
+            std::size_t freq = it_d->meta.freq;
             auto& list = table_d_[freq];
 
             table_p_.erase(it_p);
@@ -299,12 +309,9 @@ class LFUCacheLevel
 };
 
 
-LevelSpec<LFUCacheLevel, OptionsLFU> LFU(size_t capacity)
+inline LevelSpec<LFUCacheLevel, OptionsLFU> LFU(std::size_t capacity)
 {
     return level<LFUCacheLevel, OptionsLFU>(OptionsLFU(capacity));
 }
 
 } // MyCache::policy
-
-
-#endif // LFU_POLICY_HH

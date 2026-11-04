@@ -65,7 +65,7 @@ auto make_cache_from_json(
         }
     }
 
-    return builder.build();
+    return std::move(builder).build();
 }
 
 } // namespace JsonConfig
