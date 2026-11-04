@@ -1,5 +1,8 @@
-#ifndef ARC_POLICY_HH
-#define ARC_POLICY_HH
+#pragma once
+
+#include "../level_spec.hpp"
+#include "../types.hpp"
+#include "../errors.hpp"
 
 #include <utility>
 #include <optional>
@@ -20,11 +23,11 @@ namespace MyCache::policy
 
 struct OptionsARC
 {
-    size_t sz_of_summ_of_T;
-    size_t sz_of_T_one;
+    std::size_t sz_of_summ_of_T;
+    std::size_t sz_of_T_one;
 
-    size_t sz_of_B_one;
-    size_t sz_of_B_two;
+    std::size_t sz_of_B_one;
+    std::size_t sz_of_B_two;
 };
 
 struct ARCTag {};
@@ -61,11 +64,11 @@ class ARCCacheLevel
 
     private:
     //_________________________________________________________________________________________________________________________________________//
-        size_t size_;       // = T1 + T2
-        size_t size_T1_;    // = sizeof (T1)
+        std::size_t size_;       // = T1 + T2
+        std::size_t size_T1_;    // = sizeof (T1)
 
-        size_t size_B1_;      
-        size_t size_B2_;        
+        std::size_t size_B1_;
+        std::size_t size_B2_;
 
         struct Node_ARC_T_  // live values
         {
@@ -103,8 +106,8 @@ class ARCCacheLevel
     //_________________________________________________________________________________________________________________________________________//
 
         MiddleStruct add_in_TN (Node_ARC_T_& n_value,
-                        size_t size_of_list_T,
-                        size_t size_of_list_B,
+                        std::size_t size_of_list_T,
+                        std::size_t size_of_list_B,
                         std::list<Node_ARC_T_>& T_T_list,
                         std::list<Node_ARC_B_>& B_B_list,
                         std::unordered_map <Key, typename std::list<Node_ARC_T_>::iterator, Hash>& T_T_Htable,
@@ -131,7 +134,7 @@ class ARCCacheLevel
             return {std::move(last_elem), &inserted_it->value};
         }
 
-        void add_in_BN (Node_ARC_B_ n_key, size_t size_of_list_B,
+        void add_in_BN (Node_ARC_B_ n_key, std::size_t size_of_list_B,
                                             std::list<Node_ARC_B_>& B_B_list,
                                             std::unordered_map <Key, typename std::list<Node_ARC_B_>::iterator, Hash>& B_B_Htable )
         {
@@ -150,7 +153,7 @@ class ARCCacheLevel
         }
 
         void remove_out_TN (const Key key,
-                            size_t size_of_list_B,
+                            std::size_t size_of_list_B,
                             std::list<Node_ARC_T_>& T_T_list,
                             std::list<Node_ARC_B_>& B_B_list,
                             std::unordered_map <Key, typename std::list<Node_ARC_T_>::iterator, Hash>& T_T_Htable,
@@ -494,7 +497,7 @@ class ARCCacheLevel
         {
             if (size_ < 2 || size_T1_ == 0 || size_T1_ >= size_ || size_B1_ == 0 || size_B2_ == 0)
             {
-                throw std::invalid_argument(
+                throw configuration_error(
                     "ARC requires capacity >= 2, "
                     "0 < T1 < capacity, and positive ghost capacities"
                 );
@@ -505,36 +508,27 @@ class ARCCacheLevel
             B1_Htable_.reserve(size_B1_);
             B2_Htable_.reserve(size_B2_);
         }
-        ARCCacheLevel(size_t capacity, Hash hash_func) :
-            size_(capacity),
-            size_T1_(capacity / 2),
-
-            size_B1_(capacity / 2),
-            size_B2_(capacity / 2),
-
-            T1_Htable_(0, hash_func),
-            T2_Htable_(0, hash_func),
-            B1_Htable_(0, hash_func),
-            B2_Htable_(0, hash_func)
-        {
-            if (size_ < 2)
-                throw std::invalid_argument("need size of cache ARC > 0");
-
-            T1_Htable_.reserve(size_T1_);
-            T2_Htable_.reserve(size_ - size_T1_);
-            B1_Htable_.reserve(size_B1_);
-            B2_Htable_.reserve(size_B2_);
-        }
+        ARCCacheLevel(std::size_t capacity, Hash hash_func) :
+            ARCCacheLevel(
+                OptionsARC{capacity, capacity / 2, capacity / 2, capacity / 2},
+                std::move(hash_func)
+            )
+        {}
 };
 
 inline LevelSpec<ARCCacheLevel, OptionsARC>
-ARC(size_t sz_of_summ_of_T, size_t sz_of_T_one, size_t sz_of_B_one, size_t sz_of_B_two)
+ARC(
+    std::size_t sz_of_summ_of_T,
+    std::size_t sz_of_T_one,
+    std::size_t sz_of_B_one,
+    std::size_t sz_of_B_two
+)
 {
     return level<ARCCacheLevel, OptionsARC>(OptionsARC{sz_of_summ_of_T, sz_of_T_one, sz_of_B_one, sz_of_B_two});
 }
 
 inline LevelSpec<ARCCacheLevel, OptionsARC>
-ARC(size_t capacity)
+ARC(std::size_t capacity)
 {
     return level<ARCCacheLevel, OptionsARC>(
     OptionsARC {capacity,
@@ -544,5 +538,3 @@ ARC(size_t capacity)
 }
 
 }
-
-#endif // ARC_POLICY_HH

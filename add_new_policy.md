@@ -529,7 +529,7 @@ MyCache::runtime::CacheBuilder<std::string, int> builder(
 builder.add_level(MyCache::policy::Custom(10));
 builder.add_level(MyCache::policy::Custom(20));
 
-auto cache = builder.build();
+auto cache = std::move(builder).build();
 ```
 
 Текущий runtime adapter стирает тип меты:

@@ -1,5 +1,4 @@
-#ifndef LEVEL_SPEC_HH
-#define LEVEL_SPEC_HH
+#pragma once
 
 #include <utility>
 
@@ -43,5 +42,3 @@ auto level(Options options)
 }
 
 } // MyCache
-
-#endif // LEVEL_SPEC_HH

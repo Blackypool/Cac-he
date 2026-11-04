@@ -1,6 +1,10 @@
-#ifndef LRU_POLICY_HH
-#define LRU_POLICY_HH
+#pragma once
 
+#include "../level_spec.hpp"
+#include "../types.hpp"
+#include "../errors.hpp"
+
+#include <cstddef>
 #include <utility>
 #include <optional>
 #include <list>
@@ -23,7 +27,7 @@ struct LRUMeta
 
 struct OptionsLRU
 {
-    size_t capacity;
+    std::size_t capacity;
 };
 
 // ====================================================== LRU cachelevel class ===================================================
@@ -41,7 +45,7 @@ class LRUCacheLevel
 
     private:
 
-        size_t capacity_;
+        std::size_t capacity_;
 
         struct NodeLRU
         {
@@ -57,14 +61,15 @@ class LRUCacheLevel
 
         LRUCacheLevel(OptionsLRU options, Hash hash_func)
         :   capacity_(options.capacity),
-            h_table_(capacity_, hash_func)
+            h_table_(0, hash_func)
         {
             if (capacity_ == 0)
             {
-                throw std::invalid_argument(
+                throw configuration_error(
                     "LRU cache capacity must be positive"
                 );
             }
+            h_table_.reserve(capacity_);
         } 
 
         template <typename AnyMeta>
@@ -189,12 +194,9 @@ class LRUCacheLevel
 
 };
 
-inline LevelSpec<LRUCacheLevel, OptionsLRU> LRU(size_t capacity)
+inline LevelSpec<LRUCacheLevel, OptionsLRU> LRU(std::size_t capacity)
 {
     return level<LRUCacheLevel, OptionsLRU>(OptionsLRU(capacity));
 }
 
 } // MyCache::policy
-
-
-#endif // LRU_POLICY_HH

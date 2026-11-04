@@ -1,5 +1,11 @@
-#ifndef POLICY_ADAPTER
-#define POLICY_ADAPTER
+#pragma once
+
+#include "../types.hpp"
+#include "cache_level.hpp"
+
+#include <optional>
+#include <ostream>
+#include <utility>
 
 namespace MyCache::runtime {
 
@@ -56,7 +62,7 @@ class PolicyAdapter final :
             return std::move(result->entry);
         }
 
-        const Value* get(Key key) override
+        const Value* get(const Key& key) override
         {
             return policy_.get(key);
         }
@@ -80,5 +86,3 @@ class PolicyAdapter final :
 };
 
 } // MyCache::runtime
-
-#endif

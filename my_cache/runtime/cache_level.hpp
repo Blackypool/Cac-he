@@ -1,7 +1,9 @@
-#ifndef CACHE_LEVEL_H
-#define CACHE_LEVEL_H
+#pragma once
+
+#include "../types.hpp"
 
 #include <ostream>
+#include <optional>
 
 namespace MyCache::runtime {
 
@@ -15,7 +17,7 @@ class ICacheLevel
         using Evicted  = Transfer;
 
         virtual AddResult<Transfer, Value> add(Entry entry) = 0;
-        virtual const Value* get(Key key) = 0;
+        virtual const Value* get(const Key& key) = 0;
         virtual std::optional<Transfer> extract(const Key& key) = 0;
         virtual bool contains(const Key& key) const = 0;
         virtual void remove(const Key& key) = 0;
@@ -25,5 +27,3 @@ class ICacheLevel
 };
 
 } // MyCache::runtime 
-
-#endif // CACHE_LEVEL_H
