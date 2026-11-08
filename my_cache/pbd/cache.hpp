@@ -4,6 +4,7 @@
 #include "../errors.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <type_traits>
 #include <utility>
@@ -16,6 +17,12 @@
 #include <vector>
 #include <tuple>
 
+enum class MetaMode : uint8_t
+{
+    drop = 0,
+    save = 1
+};
+
 namespace MyCache::pbd {
 
 // ====================================================== main cache class ====================================================
@@ -23,6 +30,7 @@ template <
     typename Key, 
     typename Value, 
     typename Loader,
+    MetaMode Mode = MetaMode::drop,
     typename ... Policies
 >
 class Cache  
@@ -38,12 +46,25 @@ class Cache
         Loader load_;
         std::tuple<Policies ...> levels_;
 
+        template <typename Policy, typename Transfer>
+        auto add_to_level(Policy& level, Transfer&& transfer)
+        {
+            if constexpr (Mode == MetaMode::drop)
+            {
+                return level.add(std::move(transfer.entry));
+            }
+            if constexpr (Mode == MetaMode::save)
+            {
+                return level.add(std::move(transfer));
+            }
+        }
+
         template <std::size_t I, typename Transfer>
         const Value* push_down(Transfer insert)
         {
             auto& current = std::get<I>(levels_);
 
-            auto res = current.add(std::move(insert));
+            auto res = add_to_level(current, std::move(insert));
     
             const Value* inserted = res.inserted;
 
@@ -70,7 +91,7 @@ class Cache
                 }
             );
         }
-
+        
         template <std::size_t I>
         const Value* get_from_low_levels(const Key& key)
         {

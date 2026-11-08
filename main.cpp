@@ -1,5 +1,5 @@
-// #include "my_cache/pbd.hpp"
-#include "my_cache/runtime.hpp"
+#include "my_cache/pbd.hpp"
+// #include "my_cache/runtime.hpp"
 #include "my_cache/policies/arc_policy.hpp"
 #include "my_cache/policies/two_q_policy.hpp"
 
@@ -70,29 +70,13 @@ std::string generate_random_string()
 
 int main (void)
 {
-    // auto cache = MyCache::pbd::make_cache<Key, Value> (
-    //     Loader{},
-    //     std::hash<Key>{},
-    //     MyCache::policy::LRU(10),
-    //     MyCache::policy::LRU(20),
-    //     MyCache::policy::LRU(30)
-    // );
-
-    // for (int i = 0; i < 100; i++)
-    // {
-    //     cache.add(generate_random_string(), i);
-    // }
-
-    // cache.dump(std::cout);
-
-    typename MyCache::runtime::CacheBuilder<Key, Value>
-    builder(Loader{});
-
-    builder.add_level(MyCache::policy::ARC(10));
-    builder.add_level(MyCache::policy::TwoQ(20));
-    builder.add_level(MyCache::policy::ARC(30));
-
-    auto cache = std::move(builder).build();
+    auto cache = MyCache::pbd::make_cache<Key, Value> (
+        Loader{},
+        std::hash<Key>{},
+        MyCache::policy::LRU(10),
+        MyCache::policy::LRU(20),
+        MyCache::policy::LRU(30)
+    );
 
     for (int i = 0; i < 100; i++)
     {
@@ -100,6 +84,22 @@ int main (void)
     }
 
     cache.dump(std::cout);
+
+    // typename MyCache::runtime::CacheBuilder<Key, Value>
+    // builder(Loader{});
+
+    // builder.add_level(MyCache::policy::ARC(10));
+    // builder.add_level(MyCache::policy::TwoQ(20));
+    // builder.add_level(MyCache::policy::ARC(30));
+
+    // auto cache = std::move(builder).build();
+
+    // for (int i = 0; i < 100; i++)
+    // {
+    //     cache.add(generate_random_string(), i);
+    // }
+
+    // cache.dump(std::cout);
 
     return 0;
 }
