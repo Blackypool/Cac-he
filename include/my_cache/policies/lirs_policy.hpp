@@ -351,10 +351,10 @@ class LIRSCacheLevel
               stack_pos_(0, hash_func),
               resident_(0, std::move(hash_func))
         {
-            if (capacity_ == 0)
+            if (capacity_ < 2)
             {
                 throw configuration_error(
-                    "LIRS cache capacity must be positive"
+                    "LIRS cache capacity must be at least 2"
                 );
             }
 
@@ -365,11 +365,10 @@ class LIRSCacheLevel
                 );
             }
 
-            if (capacity_ > 1 && hir_capacity_ == capacity_)
+            if (hir_capacity_ == capacity_)
             {
                 throw configuration_error(
-                    "LIRS cache with capacity greater than one must keep "
-                    "at least one LIR block"
+                    "LIRS cache must keep at least one LIR block"
                 );
             }
             stack_pos_.reserve(capacity_);
@@ -636,10 +635,7 @@ inline LevelSpec<LIRSCacheLevel, OptionsLIRS> LIRS(
 
 inline LevelSpec<LIRSCacheLevel, OptionsLIRS> LIRS(std::size_t capacity)
 {
-    const std::size_t hir_capacity =
-        capacity <= 1
-            ? capacity
-            : std::max<std::size_t>(1, capacity / 4);
+    const std::size_t hir_capacity = std::max<std::size_t>(1, capacity / 4);
 
     return LIRS(capacity, hir_capacity, capacity);
 }

@@ -4,6 +4,12 @@ namespace Test {
 
 using namespace MyCache;
 
+template <typename Arg, typename Return>
+constexpr auto overload_cast(Return (*func)(Arg))
+{
+    return func;
+}
+
 template<auto Policy>
 struct PolicyBuild
 {

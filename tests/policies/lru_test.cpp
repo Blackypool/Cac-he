@@ -4,31 +4,35 @@
 #include "my_cache/types.hpp"
 #include "my_cache/policies/lru_policy.hpp"
 #include "my_cache/errors.hpp"
+#include "policy_test_tools.hpp"
 
 namespace {
 
 using Hash = std::hash<int>;
 using namespace MyCache;
+using Test::ExpectedAccess;
+using Test::run_access_trace;
+using enum ExpectedAccess;
+
+auto make_lru(std::size_t capacity)
+{
+    return policy::LRU(capacity)
+        .build<int, int, Hash>(Hash{});
+}
 
 TEST(LruPolicy, HitChangesEvictionVictim)
 {
-    auto level = policy::LRU(2).build<int, int, Hash>(Hash{});
+    auto level = make_lru(2);
 
-    level.add(CacheEntry<int, int>{1, 10});
-    level.add(CacheEntry<int, int>{2, 20});
-
-    const int* value = level.get(1);
-    ASSERT_NE(value, nullptr);
-    EXPECT_EQ(*value, 10);
-
-    auto result = level.add(CacheEntry<int, int>{3, 30});
-
-    ASSERT_TRUE(result.evicted.has_value());
-    EXPECT_EQ(result.evicted->entry.key, 2);
-    EXPECT_EQ(result.evicted->entry.value, 20);
-    
-    ASSERT_NE  (result.inserted, nullptr);
-    EXPECT_EQ(*(result.inserted), 30);
+    ASSERT_NO_FATAL_FAILURE(
+        run_access_trace(
+            level,
+            {
+                {1, miss}, {2, miss}, {1, hit},
+                {3, miss, 2}
+            }
+        );
+    );
 
     EXPECT_TRUE (level.contains(1));
     EXPECT_FALSE(level.contains(2));
@@ -37,34 +41,138 @@ TEST(LruPolicy, HitChangesEvictionVictim)
 
 TEST(LruPolicy, OverflowEvictsLeastRecentlyUsed)
 {
-    auto level = policy::LRU(2).build<int, int, Hash>(Hash{});
+    auto level = make_lru(2);
 
-    level.add(CacheEntry<int, int>{1, 10});
-    level.add(CacheEntry<int, int>{2, 20});
-    auto result = level.add(CacheEntry<int, int>{3, 30});
-
-    ASSERT_TRUE(result.evicted.has_value());
-    EXPECT_EQ(result.evicted->entry.key, 1);
-    EXPECT_EQ(result.evicted->entry.value, 10);
-    
-    ASSERT_NE  (result.inserted, nullptr);
-    EXPECT_EQ(*(result.inserted), 30);
+    ASSERT_NO_FATAL_FAILURE(
+        run_access_trace(
+            level,
+            {
+                {1, miss}, {2, miss},
+                {3, miss, 1}
+            }
+        );
+    );
 
     EXPECT_FALSE(level.contains(1));
     EXPECT_TRUE (level.contains(2));
     EXPECT_TRUE (level.contains(3));
 }
 
-TEST(LruPolicy, RejectsZeroCapacity)
+TEST(LruPolicy, OneCapacityEviction)
 {
-    EXPECT_THROW(
-        (policy::LRU(0).build<int, int, Hash>(Hash{})),
-        configuration_error
+    auto level = make_lru(1);
+
+    ASSERT_NO_FATAL_FAILURE(
+        run_access_trace(
+            level,
+            {
+                {1, miss}, {1, hit},
+                {2, miss, 1}, {2, hit},
+                {3, miss, 2}, {3, hit}
+            }
+        );
     );
 
-    EXPECT_NO_THROW(
-        (policy::LRU(5).build<int, int, Hash>(Hash{}))
-    );  
+    EXPECT_FALSE(level.contains(1));
+    EXPECT_FALSE(level.contains(2));
+    EXPECT_TRUE (level.contains(3));
+}
+
+TEST(LruPolicy, ContainsDoesNotChangeRecency)
+{
+    auto level = make_lru(2);
+
+    ASSERT_NO_FATAL_FAILURE(
+        run_access_trace(
+            level,
+            {
+                {1, miss}, {2, miss}
+            }
+        );
+    );
+
+    EXPECT_TRUE(level.contains(1));
+    EXPECT_TRUE(level.contains(1));
+
+    ASSERT_NO_FATAL_FAILURE(
+        run_access_trace(
+            level,
+            {
+                {3, miss, 1}
+            }
+        );
+    );
+
+    EXPECT_FALSE(level.contains(1));
+    EXPECT_TRUE (level.contains(2));
+    EXPECT_TRUE (level.contains(3));
+}
+
+TEST(LruPolicy, RemoveThenInsertPreservesOrder)
+{
+    auto level = make_lru(3);
+
+    ASSERT_NO_FATAL_FAILURE(
+        run_access_trace(
+            level,
+            {
+                {1, miss}, {2, miss}, {3, miss}
+            }
+        );
+    );
+
+    level.remove(2);
+    EXPECT_FALSE(level.contains(2));
+
+    ASSERT_NO_FATAL_FAILURE(
+        run_access_trace(
+            level,
+            {
+                {4, miss}, {5, miss, 1}
+            }
+        );
+    );
+
+    EXPECT_FALSE(level.contains(1));
+    EXPECT_FALSE(level.contains(2));
+    EXPECT_TRUE (level.contains(3));
+    EXPECT_TRUE (level.contains(4));
+    EXPECT_TRUE (level.contains(5));
+}
+
+TEST(LruPolicy, ExtractThenInsertPreservesOrder)
+{
+    auto level = make_lru(3);
+
+    ASSERT_NO_FATAL_FAILURE(
+        run_access_trace(
+            level,
+            {
+                {1, miss}, {2, miss}, {3, miss}
+            }
+        );
+    );
+
+    auto extract_2 = level.extract(2);
+    ASSERT_TRUE(extract_2.has_value());
+    EXPECT_EQ(extract_2->entry.key, 2);
+    EXPECT_EQ(extract_2->entry.value, 20);
+    EXPECT_FALSE(level.contains(2));
+
+    ASSERT_NO_FATAL_FAILURE(
+        run_access_trace(
+            level,
+            {
+                {4, miss}, {5, miss, 1}
+            }
+        );
+    );
+
+    EXPECT_FALSE(level.contains(1));
+    EXPECT_FALSE(level.contains(2));
+    EXPECT_TRUE (level.contains(3));
+    EXPECT_TRUE (level.contains(4));
+    EXPECT_TRUE (level.contains(5));
 }
 
 } // namespace

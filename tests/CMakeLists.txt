@@ -1,7 +1,8 @@
 add_executable(tests
+    policies/common_policies_tests.cpp
     policies/lru_test.cpp
     policies/lfu_test.cpp
-    policies/common_policies_tests.cpp
+    policies/lirs_test.cpp
 )
 
 target_link_libraries(
