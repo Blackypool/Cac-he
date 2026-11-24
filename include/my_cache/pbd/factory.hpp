@@ -15,6 +15,7 @@ template <
     typename Key, 
     typename Value,
     typename Loader,
+    MetaMode Mode = MetaMode::drop,
     typename Hash = std::hash<Key>,
     typename ... Specs
 >
@@ -34,6 +35,7 @@ auto make_cache(Loader load_func, Hash hash_func = std::hash<Key>{}, Specs ... s
         Key, 
         Value, 
         Loader, 
+        Mode,
         typename Specs::template Level<
             Key,
             Value, 

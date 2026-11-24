@@ -1,6 +1,6 @@
 /todo.md
 /cache
 /new.md
+/tests.md
 *.out
-/benchmark
-/tests
+/build
